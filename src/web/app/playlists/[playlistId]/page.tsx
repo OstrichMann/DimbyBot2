@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
-import { getPlaylistAction } from "@/lib/actions/playlist.actions"
+import { getPlaylistAction } from "@/server/playlists.actions"
 import { PlaylistTrackList } from "@/components/PlaylistTrackList"
 import type { PlaylistTrackData } from "@/types/web"
 

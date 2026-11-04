@@ -6,7 +6,7 @@ import {
     addTrackToPlaylistAction,
     createPlaylistAction,
     getPlaylistsAction,
-} from "@/lib/actions/playlist.actions"
+} from "@/server/playlists.actions"
 import { Button } from "@/components/ui/button"
 import type { PlaylistSummary } from "@/types/web"
 

@@ -11,7 +11,7 @@ describe("parseSafeGuildListItem", () => {
         const item = parseSafeGuildListItem({
             id: " 123456789012345678 ",
             name: "  Cool Guild ",
-            iconUrl: " https://cdn.discordapp.com/icons/1/a.png ",
+            iconUrl: " https://media.instance.example/icons/1/a.png ",
             memberCount: 42,
             player: {
                 status: "playing",
@@ -25,7 +25,7 @@ describe("parseSafeGuildListItem", () => {
         assert.deepEqual(item, {
             id: "123456789012345678",
             name: "Cool Guild",
-            iconUrl: "https://cdn.discordapp.com/icons/1/a.png",
+            iconUrl: "https://media.instance.example/icons/1/a.png",
             memberCount: 42,
             player: {
                 status: "playing",
@@ -76,11 +76,11 @@ describe("parseGuildListPlayerSummary", () => {
 })
 
 describe("isValidGuildIconUrl", () => {
-    it("allows only https Discord CDN hosts", () => {
-        assert.equal(isValidGuildIconUrl("https://cdn.discordapp.com/icons/1/a.png"), true)
-        assert.equal(isValidGuildIconUrl("HTTPS://images.discordapp.net/avatars/1/b.png"), true)
-        assert.equal(isValidGuildIconUrl("http://cdn.discordapp.com/icons/1/a.png"), false)
-        assert.equal(isValidGuildIconUrl("https://evil.example/cdn.discordapp.com/x.png"), false)
+    it("allows native HTTP(S) assets and rejects credentials or executable schemes", () => {
+        assert.equal(isValidGuildIconUrl("https://media.instance.example/icons/1/a.png"), true)
+        assert.equal(isValidGuildIconUrl("HTTPS://media.instance.example/avatars/1/b.png"), true)
+        assert.equal(isValidGuildIconUrl("file:///tmp/a.png"), false)
+        assert.equal(isValidGuildIconUrl("https://secret@media.instance.example/x.png"), false)
         assert.equal(isValidGuildIconUrl("javascript:alert(1)"), false)
         assert.equal(isValidGuildIconUrl("data:image/png;base64,aaa"), false)
         assert.equal(isValidGuildIconUrl(""), false)

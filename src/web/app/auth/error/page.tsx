@@ -7,14 +7,14 @@ export const dynamic = "force-dynamic"
 
 export const metadata: Metadata = {
     title: "Sign-in error — DimbyBot Dashboard",
-    description: "Discord OAuth sign-in could not be completed.",
+    description: "Fluxer OAuth sign-in could not be completed.",
 }
 
 type AuthErrorPageProps = {
     searchParams: Promise<{ error?: string | string[]; error_description?: string | string[] }>
 }
 
-/** Shown when Discord OAuth or Better Auth fails — intentionally not a login form. */
+/** Shown when Fluxer OAuth or Better Auth fails — intentionally not a login form. */
 export default async function AuthErrorPage({ searchParams }: AuthErrorPageProps) {
     const raw = await searchParams
     const error = normalizeSearchParam(raw.error)?.trim()
@@ -39,8 +39,8 @@ export default async function AuthErrorPage({ searchParams }: AuthErrorPageProps
                     DimbyBot Dashboard home page
                 </Link>{" "}
                 to start sign-in again. You will be sent to{" "}
-                <strong className="text-foreground">discord.com</strong> — this site never asks for
-                your Discord password.
+                <strong className="text-foreground">your Fluxer instance</strong> — this site never
+                asks for your Fluxer password.
             </p>
             <Link
                 href="/status"

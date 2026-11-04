@@ -24,20 +24,8 @@ const nextConfig = {
             },
         ]
     },
-    images: {
-        remotePatterns: [
-            {
-                protocol: "https",
-                hostname: "cdn.discordapp.com",
-                pathname: "/**",
-            },
-            {
-                protocol: "https",
-                hostname: "images.discordapp.net",
-                pathname: "/**",
-            },
-        ],
-    },
+    // Instance avatars and guild icons render unoptimized; no arbitrary server-side image proxy.
+    images: { remotePatterns: [] },
     experimental: {
         externalDir: true,
     },

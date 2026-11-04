@@ -35,6 +35,7 @@ export function nativePlayerState(snapshot: MusicSnapshot, viewer: MusicViewer) 
         currentTrack: snapshot.current
             ? {
                   ...nativeTrackSummary(snapshot.current),
+                  sourceUri: snapshot.current.uri,
                   uri: snapshot.playbackUrl ?? snapshot.current.uri,
                   durationMs: snapshot.durationMs,
               }

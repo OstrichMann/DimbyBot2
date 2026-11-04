@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import { createPlaylistAction } from "@/lib/actions/playlist.actions"
+import { createPlaylistAction } from "@/server/playlists.actions"
 import { Button } from "@/components/ui/button"
 
 export function CreatePlaylistForm() {
