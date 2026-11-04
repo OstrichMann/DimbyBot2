@@ -96,7 +96,9 @@ export function GoToNowPlayingButton() {
                         </span>
                     )}
                     <span className="min-w-0 text-left">
-                        <span className="block text-sm font-semibold leading-tight">Go to now playing</span>
+                        <span className="block text-sm font-semibold leading-tight">
+                            Go to now playing
+                        </span>
                         <span className="block truncate text-xs font-normal opacity-90">
                             {activeGuild.guildName} · {subtitle}
                         </span>

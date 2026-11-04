@@ -74,7 +74,10 @@ export function AddTrackToPlaylistForm({ playlistId, guildId }: AddTrackToPlayli
                 </p>
             ) : null}
             {success ? (
-                <p className="text-sm text-green-600 dark:text-green-400 sm:basis-full" role="status">
+                <p
+                    className="text-sm text-green-600 dark:text-green-400 sm:basis-full"
+                    role="status"
+                >
                     {success}
                 </p>
             ) : null}
