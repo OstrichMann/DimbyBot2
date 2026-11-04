@@ -1,0 +1,99 @@
+import assert from "node:assert/strict"
+import { test } from "node:test"
+import { EventEmitter } from "node:events"
+import { NativeMusicConnections } from "../../src/shared/websocket/NativeMusicConnections.js"
+import { musicServiceHarness, settleMusic } from "../test-support/musicServiceFakes.js"
+import { MusicAccessError } from "../../src/lib/fluxer/access.js"
+import type { AuthenticatedActor } from "../../src/shared/fluxer-session.js"
+class Socket extends EventEmitter {
+    readyState = 1
+    sent: any[] = []
+    send(text: string) {
+        this.sent.push(JSON.parse(text))
+    }
+    close() {
+        this.readyState = 3
+        this.emit("close")
+    }
+}
+const actor = (id: string): AuthenticatedActor => ({
+    userId: id,
+    authUserId: `uuid-${id}`,
+    sessionId: `session-${id}`,
+    expiresAt: Date.now() + 60000,
+})
+test("live subscriptions check session and access, compose each viewer, and revoke on invalidation", async () => {
+    let deny = false,
+        expired = false
+    const h = musicServiceHarness(),
+        a = new Socket(),
+        b = new Socket()
+    const manager = new NativeMusicConnections({
+        music: h.service,
+        authenticate: async (headers) => {
+            if (expired) throw new Error("session revoked")
+            return actor(headers.get("x-test-id")!)
+        },
+        authorize: async (who) => {
+            if (deny) throw new MusicAccessError(403, "Denied")
+            return { inVoiceWithBot: who.userId === "9", canQueueTracks: who.userId === "9" }
+        },
+        schedule: (fn) => {
+            queueMicrotask(fn)
+            return () => {}
+        },
+    })
+    await manager.add(a, new Headers({ "x-test-id": "9" }))
+    await manager.add(b, new Headers({ "x-test-id": "8" }))
+    a.emit("message", JSON.stringify({ type: "subscribe", guildId: "1" }))
+    b.emit("message", JSON.stringify({ type: "subscribe", guildId: "1" }))
+    await settleMusic()
+    assert.equal(a.sent.find((frame) => frame.type === "queueUpdate").state.canQueueTracks, true)
+    assert.equal(b.sent.find((frame) => frame.type === "queueUpdate").state.canQueueTracks, false)
+    deny = true
+    manager.invalidate("1")
+    await settleMusic()
+    assert.ok(a.sent.some((frame) => frame.type === "unsubscribed"))
+    assert.ok(b.sent.some((frame) => frame.type === "unsubscribed"))
+    deny = false
+    expired = true
+    a.emit("message", JSON.stringify({ type: "subscribe", guildId: "1" }))
+    await settleMusic()
+    assert.equal(a.readyState, 3)
+    const unauthenticated = new Socket()
+    await manager.add(unauthenticated, new Headers())
+    assert.equal(unauthenticated.readyState, 3)
+    manager.stop()
+})
+test("subscribe races cannot resurrect an unsubscribed guild and malformed frames fail safely", async () => {
+    const h = musicServiceHarness(),
+        socket = new Socket()
+    let release: () => void
+    const waiting = new Promise<void>((resolve) => {
+        release = resolve
+    })
+    const manager = new NativeMusicConnections({
+        music: h.service,
+        authenticate: async () => actor("9"),
+        authorize: async () => {
+            await waiting
+            return { inVoiceWithBot: true, canQueueTracks: true }
+        },
+    })
+    await manager.add(socket, new Headers())
+    socket.emit("message", '{"type":"subscribe","guildId":"1"}')
+    socket.emit("message", '{"type":"unsubscribe","guildId":"1"}')
+    release!()
+    await settleMusic()
+    assert.equal(
+        socket.sent.some((frame) => frame.type === "subscribed"),
+        false
+    )
+    socket.emit("message", "bad-json")
+    await settleMusic()
+    assert.equal(socket.sent.at(-1).code, "INVALID_MESSAGE")
+    socket.emit("message", '{"type":"ping"}')
+    await settleMusic()
+    assert.equal(socket.sent.at(-1).type, "pong")
+    manager.stop()
+})

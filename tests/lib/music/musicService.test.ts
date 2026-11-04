@@ -293,3 +293,20 @@ test("now playing links the actual playback URL while preserving catalog source 
     assert.equal(h.service.snapshot("1").playbackUrl, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     await h.service.shutdown()
 })
+
+test("stale Dashboard revisions cannot mutate or cancel a newer playback generation", async () => {
+    const h = musicServiceHarness()
+    const initial = h.service.snapshot("1").revision
+    await h.service.execute(actor, { type: "volume", percent: 25 }, { expectedRevision: initial })
+    const fresh = h.service.snapshot("1")
+    await assert.rejects(
+        h.service.execute(actor, { type: "stop" }, { expectedRevision: initial }),
+        (e) => e instanceof MusicError && e.status === 409
+    )
+    assert.equal(h.service.snapshot("1").revision, fresh.revision)
+    assert.equal(h.service.snapshot("1").volume, 25)
+    await assert.rejects(
+        h.service.execute(actor, { type: "volume", percent: 30 }, { expectedRevision: -1 }),
+        (e) => e instanceof MusicError && e.status === 400
+    )
+})

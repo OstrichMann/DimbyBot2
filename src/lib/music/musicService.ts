@@ -136,7 +136,11 @@ export class MusicService {
         }
     }
 
-    async execute(actor: MusicActor, action: MusicAction): Promise<MusicSnapshot> {
+    async execute(
+        actor: MusicActor,
+        action: MusicAction,
+        options: { expectedRevision?: number } = {}
+    ): Promise<MusicSnapshot> {
         if (this.closed) throw new MusicError(503, "Music is shutting down")
         if (
             !isFluxerId(actor.guildId) ||
@@ -145,7 +149,19 @@ export class MusicService {
         )
             throw new MusicError(400, "Invalid music actor")
         this.validate(action)
+        if (
+            options.expectedRevision !== undefined &&
+            (!Number.isSafeInteger(options.expectedRevision) || options.expectedRevision < 0)
+        )
+            throw new MusicError(400, "Invalid music revision")
         const state = this.state(actor.guildId)
+        const checkRevision = () => {
+            if (
+                options.expectedRevision !== undefined &&
+                options.expectedRevision !== state.value.revision
+            )
+                throw new MusicError(409, "Music changed; refresh and try again")
+        }
         state.requests++
         const signal = state.generation.signal
         const queued = action.type === "play" || action.type === "enqueue"
@@ -168,8 +184,9 @@ export class MusicService {
             )
             signal.throwIfAborted()
             if (action.type === "stop" || action.type === "leave") {
-                this.cancel(state)
                 await this.mutate(state, async () => {
+                    checkRevision()
+                    this.cancel(state)
                     await this.stopTrack(state)
                     state.value.current = null
                     state.value.queue = []
@@ -207,6 +224,7 @@ export class MusicService {
                 await abortable(previous, signal)
                 await this.mutate(state, () => {
                     signal.throwIfAborted()
+                    checkRevision()
                     if (
                         state.value.queue.length +
                             (state.value.current ? 1 : 0) +
@@ -231,6 +249,7 @@ export class MusicService {
             }
             await this.mutate(state, async () => {
                 signal.throwIfAborted()
+                checkRevision()
                 const value = state.value
                 switch (action.type) {
                     case "pause":
