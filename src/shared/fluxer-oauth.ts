@@ -49,6 +49,15 @@ export function fluxerProfile(value: unknown, config: FluxerOAuthConfig) {
 }
 
 /** One bounded token exchange with no credential-bearing provider response in errors or logs. */
+/** The stored Fluxer grant is gone (revoked, expired or missing): only a fresh sign-in helps. */
+export class FluxerReauthRequiredError extends Error {
+    readonly status = 401
+    constructor() {
+        super("Sign in with Fluxer again")
+        this.name = "FluxerReauthRequiredError"
+    }
+}
+
 export async function exchangeFluxerToken(
     config: FluxerOAuthConfig,
     grant: Record<string, string>,
@@ -68,6 +77,9 @@ export async function exchangeFluxerToken(
             redirect: "error",
             signal: AbortSignal.timeout(10_000),
         })
+        // RFC 6749 §5.2: invalid_grant and invalid_client are 400/401; retrying cannot succeed.
+        if (response.status === 400 || response.status === 401)
+            throw new FluxerReauthRequiredError()
         if (!response.ok) throw new Error("Token response failed")
         const data = record(await response.json())
         if (
@@ -95,7 +107,9 @@ export async function exchangeFluxerToken(
                     : undefined,
             tokenType: "Bearer",
         }
-    } catch {
+    } catch (error) {
+        if (error instanceof FluxerReauthRequiredError) throw error
+        // eslint-disable-next-line preserve-caught-error -- Upstream causes may include OAuth credentials.
         throw new Error("Fluxer OAuth token exchange failed")
     }
 }

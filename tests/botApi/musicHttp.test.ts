@@ -160,3 +160,18 @@ test("native routes reject invalid action payloads and keep queue writes attache
     )
     await h.service.shutdown()
 })
+
+test("an expired Fluxer grant asks the user to sign in again instead of reporting an outage", async () => {
+    const { FluxerReauthRequiredError } = await import("../../src/shared/fluxer-oauth.js")
+    const h = harness()
+    h.deps.guilds = async () => {
+        throw new FluxerReauthRequiredError()
+    }
+    const response = await h.request("GET", "/api/guilds")
+    assert.equal(response.status, 401)
+    assert.deepEqual(response.body, { ok: false, error: { error: "Sign in with Fluxer again" } })
+    h.deps.guilds = async () => {
+        throw new Error("Fluxer authorization unavailable; try again shortly")
+    }
+    assert.equal((await h.request("GET", "/api/guilds")).status, 503)
+})

@@ -87,3 +87,32 @@ test("independent auth consumers lock the same database account and share one en
         (e: Error) => !e.message.includes("secret")
     )
 })
+
+test("a revoked or expired refresh grant asks the user to sign in again; an outage does not", async () => {
+    const { FluxerReauthRequiredError } = await import("../../src/shared/fluxer-oauth.js")
+    const config = {
+        instanceOrigin: "https://instance.example",
+        api: "https://api.example/v1",
+        webapp: "https://chat.example",
+        cdn: "https://cdn.example",
+        media: "https://media.example",
+        clientId: "1",
+        clientSecret: "secret",
+        dashboardOrigin: "http://localhost:3000",
+    }
+    const withStatus = (status: number) =>
+        new FluxerOAuthAccounts(config, secret, async () =>
+            Response.json({ error: "invalid_grant" }, { status })
+        ).accessToken("uuid")
+    account.accessTokenExpiresAt = new Date(0)
+    for (const status of [400, 401])
+        await assert.rejects(
+            withStatus(status),
+            (e) => e instanceof FluxerReauthRequiredError && e.status === 401
+        )
+    await assert.rejects(withStatus(503), (e) => !(e instanceof FluxerReauthRequiredError))
+    const refreshToken = account.refreshToken
+    account.refreshToken = null as unknown as string
+    await assert.rejects(withStatus(200), (e) => e instanceof FluxerReauthRequiredError)
+    account.refreshToken = refreshToken
+})

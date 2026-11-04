@@ -5,6 +5,7 @@ import type { PlaylistAction, PlaylistService } from "../lib/music/playlistServi
 import type { SourceResolver } from "../lib/music/sourceResolver.js"
 import type { AuthenticatedActor } from "../shared/fluxer-session.js"
 import { isFluxerId } from "../shared/fluxer-user-id.js"
+import { FluxerReauthRequiredError } from "../shared/fluxer-oauth.js"
 import type { MusicAction } from "../shared/music-contract.js"
 import {
     nativePlayerState,
@@ -223,7 +224,11 @@ export async function handleMusicRequest(
         })
         return ok(await state())
     } catch (error) {
-        if (error instanceof MusicError || error instanceof MusicAccessError)
+        if (
+            error instanceof MusicError ||
+            error instanceof MusicAccessError ||
+            error instanceof FluxerReauthRequiredError
+        )
             return fail(error.status, error.message)
         return fail(503, "Music request unavailable")
     }

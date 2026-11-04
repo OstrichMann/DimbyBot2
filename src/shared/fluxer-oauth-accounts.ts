@@ -1,6 +1,10 @@
 import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto"
 import { getWebPrismaClient } from "../lib/webPrisma.js"
-import { exchangeFluxerToken, type FluxerOAuthConfig } from "./fluxer-oauth.js"
+import {
+    exchangeFluxerToken,
+    FluxerReauthRequiredError,
+    type FluxerOAuthConfig,
+} from "./fluxer-oauth.js"
 
 /** PostgreSQL locks coordinate refresh rotation across both application processes. */
 export class FluxerOAuthAccounts {
@@ -17,7 +21,7 @@ export class FluxerOAuthAccounts {
                     const locked = await tx.$queryRaw<
                         { id: string }[]
                     >`SELECT id FROM account WHERE "userId" = ${authUserId} AND "providerId" = ${provider} ORDER BY id FOR UPDATE`
-                    if (locked.length !== 1) throw new Error("Fluxer account required")
+                    if (locked.length !== 1) throw new FluxerReauthRequiredError()
                     // Read after acquiring the lock: a competing process may have just rotated this pair.
                     const account = await tx.account.findUnique({ where: { id: locked[0].id } })
                     if (
@@ -25,7 +29,7 @@ export class FluxerOAuthAccounts {
                         account.providerId !== "fluxer" ||
                         account.userId !== authUserId
                     )
-                        throw new Error("Fluxer account required")
+                        throw new FluxerReauthRequiredError()
                     if (
                         account.accessToken &&
                         account.accessTokenExpiresAt &&
@@ -40,7 +44,7 @@ export class FluxerOAuthAccounts {
                         (account.refreshTokenExpiresAt &&
                             account.refreshTokenExpiresAt.getTime() <= Date.now())
                     )
-                        throw new Error("Sign in again")
+                        throw new FluxerReauthRequiredError()
                     const previous = await symmetricDecrypt({
                         key: this.secret,
                         data: account.refreshToken,
@@ -69,8 +73,10 @@ export class FluxerOAuthAccounts {
                 },
                 { maxWait: 5000, timeout: 15000 }
             )
-        } catch {
-            throw new Error("Fluxer authorization unavailable; sign in again")
+        } catch (error) {
+            if (error instanceof FluxerReauthRequiredError) throw error
+            // eslint-disable-next-line preserve-caught-error -- Causes may carry token-exchange or database details.
+            throw new Error("Fluxer authorization unavailable; try again shortly")
         }
     }
 }
