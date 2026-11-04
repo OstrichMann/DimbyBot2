@@ -190,6 +190,16 @@ export class FluxerEntities {
         const guildId = id(data.guild_id) ?? (event.t === "GUILD_UPDATE" ? id(data.id) : undefined)
         const guild = guildId && this.guilds.get(guildId)
         if (!guild) return
+        // Only authority or voice-placement changes invalidate an in-flight permission check.
+        // Bot messages and voice grants can arrive as a consequence of that same action.
+        if (
+            event.t !== "VOICE_STATE_UPDATE" &&
+            event.t !== "GUILD_UPDATE" &&
+            !event.t.startsWith("GUILD_ROLE_") &&
+            !event.t.startsWith("GUILD_MEMBER_") &&
+            !event.t.startsWith("CHANNEL_")
+        )
+            return
         guild.revision = ++this.revision
         if (event.t === "VOICE_STATE_UPDATE") {
             if (typeof data.connection_id !== "string") return

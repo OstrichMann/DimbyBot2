@@ -1,19 +1,15 @@
 #!/bin/sh
-set -e
+set -eu
 export PORT="${PORT:-3000}"
 export HOSTNAME="${HOSTNAME:-0.0.0.0}"
-# Compose sometimes passes an empty DATABASE_URL when .env interpolation differs from the bot service.
-# If unset, build the same in-stack URL the bot uses (postgres-db:5432 on the internal network).
-if [ -z "${DATABASE_URL:-}" ] && [ -n "${POSTGRES_USER:-}" ] && [ -n "${POSTGRES_DB:-}" ]; then
-    export DATABASE_URL="$(
-        node -e "const u=process.env.POSTGRES_USER||'';const p=encodeURIComponent(process.env.POSTGRES_PASSWORD||'');const d=process.env.POSTGRES_DB||'';const h=process.env.POSTGRES_INTERNAL_HOST||'postgres-db';console.log('postgresql://'+u+':'+p+'@'+h+':5432/'+d)"
-    )"
+if [ -z "${DATABASE_URL:-}" ]; then
+    : "${POSTGRES_USER:?Set POSTGRES_USER}"
+    : "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}"
+    : "${POSTGRES_DB:?Set POSTGRES_DB}"
+    DATABASE_URL="$(node -e 'const e=encodeURIComponent;const p=process.env;process.stdout.write(`postgresql://${e(p.POSTGRES_USER)}:${e(p.POSTGRES_PASSWORD)}@${p.POSTGRES_INTERNAL_HOST||"fluxer-db"}:5432/${e(p.POSTGRES_DB)}`)')"
+    export DATABASE_URL
 fi
-if [ -f /app/server.js ]; then
-    exec node /app/server.js
-fi
-if [ -f /app/src/web/server.js ]; then
-    exec node /app/src/web/server.js
-fi
-echo "dimbybot-web: Next.js standalone server.js not found under /app" >&2
+if [ -f /app/server.js ]; then exec node /app/server.js; fi
+if [ -f /app/src/web/server.js ]; then exec node /app/src/web/server.js; fi
+echo "Fluxer Dashboard standalone server.js is missing" >&2
 exit 1

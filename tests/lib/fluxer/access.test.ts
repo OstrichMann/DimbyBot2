@@ -5,7 +5,7 @@ import { FluxerEntities } from "../../../src/lib/fluxer/entities.js"
 import { FluxerRest } from "../../../src/lib/fluxer/rest.js"
 
 const mask = ((1n << 10n) | (1n << 20n) | (1n << 21n)).toString()
-function harness() {
+function harness(onRequest?: () => void) {
     const entities = new FluxerEntities()
     entities.apply({ t: "GUILD_CREATE", d: { id: "1", properties: { owner_id: "99" } } })
     const member = {
@@ -27,6 +27,7 @@ function harness() {
     const rest = new FluxerRest("https://api.example/v1", "secret", {
         sleep: async () => {},
         fetchImpl: async (input) => {
+            onRequest?.()
             const path = new URL(String(input)).pathname
             if (fail) return new Response(null, { status: fail })
             const body = path.endsWith("/roles")
@@ -189,6 +190,55 @@ test("control channel configuration requires a same-guild text channel visible t
     ]
     await assert.rejects(
         h.access.authorizeMusic(actor, "configure", "2"),
+        (e) => e instanceof MusicAccessError && e.status === 403
+    )
+})
+
+test("restored Bot sessions verify the actual target channel and Speak permission without pretending the Bot is a listener", async () => {
+    const h = harness()
+    h.setOccupied(null)
+    await h.access.verifyBotVoice("1", "2")
+    h.channel.permission_overwrites = [
+        { id: "8", type: 1, allow: "0", deny: (1n << 21n).toString() },
+    ]
+    await assert.rejects(
+        h.access.verifyBotVoice("1", "2"),
+        (e) => e instanceof MusicAccessError && e.status === 403
+    )
+    h.channel.permission_overwrites = []
+    h.channel.guild_id = "3"
+    await assert.rejects(
+        h.access.verifyBotVoice("1", "2"),
+        (e) => e instanceof MusicAccessError && e.status === 403
+    )
+})
+
+test("a settled voice update is reauthorized with fresh REST authority", async () => {
+    for (const kind of ["bot", "actor"]) {
+        let changed = false
+        const h = harness(() => {
+            if (!changed) {
+                changed = true
+                h.voice("2")
+            }
+        })
+        h.voice("2")
+        if (kind === "bot") await h.access.verifyBotVoice("1", "2")
+        else assert.equal((await h.access.authorizeMusic(actor, "queue")).voiceChannelId, "2")
+    }
+})
+
+test("continuous guild changes remain unavailable and permission revocation is never retried as success", async () => {
+    const h = harness(() => h.voice("2"))
+    await assert.rejects(
+        h.access.verifyBotVoice("1", "2"),
+        (e) => e instanceof MusicAccessError && e.status === 503
+    )
+    h.channel.permission_overwrites = [
+        { id: "8", type: 1, allow: "0", deny: (1n << 21n).toString() },
+    ]
+    await assert.rejects(
+        h.access.verifyBotVoice("1", "2"),
         (e) => e instanceof MusicAccessError && e.status === 403
     )
 })

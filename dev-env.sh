@@ -16,7 +16,7 @@ usage() {
   echo "  build: Force build/rebuild images for services."
   echo "  rebuild: Stop, force build/rebuild, and start all services."
   echo "  logs: Follow logs for all services (or specific service)."
-  echo "  restart [service]: Restart a specific service (e.g., 'bot')."
+  echo "  restart [service]: Restart a specific service (e.g., 'fluxer-bot')."
   echo "  exec <service> [command]: Execute a command in a running service (default: sh)."
   exit 1
 }
@@ -27,7 +27,7 @@ if [ "$#" -eq 0 ]; then
 fi
 
 # Command aliases for docker-compose using dev overrides (array: safe with spaces in paths)
-DC=(docker compose -f docker-compose.yml -f docker-compose.dev.yml)
+DC=(docker compose --env-file .env.fluxer -f docker-compose.yml -f docker-compose.dev.yml)
 
 # Parse command
 COMMAND=$1
@@ -66,7 +66,7 @@ case $COMMAND in
   restart)
     SERVICE="${1:-}"
     if [ -z "$SERVICE" ]; then
-      echo "Error: Please specify a service to restart (e.g., 'bot')."
+      echo "Error: Please specify a service to restart (e.g., 'fluxer-bot')."
       exit 1
     fi
     echo "Restarting service '$SERVICE'..."
@@ -74,7 +74,7 @@ case $COMMAND in
     ;;
   exec)
     if [ -z "${1:-}" ]; then
-      echo "Error: Please specify a service to execute command in (e.g., 'bot')."
+      echo "Error: Please specify a service to execute command in (e.g., 'fluxer-bot')."
       exit 1
     fi
     SERVICE=$1

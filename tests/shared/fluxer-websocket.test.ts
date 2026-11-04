@@ -97,3 +97,57 @@ test("subscribe races cannot resurrect an unsubscribed guild and malformed frame
     assert.equal(socket.sent.at(-1).type, "pong")
     manager.stop()
 })
+
+test("slow WebSocket viewers are closed before outbound updates can buffer without limit", async () => {
+    const h = musicServiceHarness()
+    const socket = Object.assign(new Socket(), { bufferedAmount: 2 * 1024 * 1024 })
+    const manager = new NativeMusicConnections({
+        music: h.service,
+        authenticate: async () => actor("9"),
+        authorize: async () => ({ inVoiceWithBot: true, canQueueTracks: true }),
+    })
+    await manager.add(socket, new Headers())
+    socket.emit("message", '{"type":"ping"}')
+    await settleMusic()
+    assert.equal(socket.readyState, 3)
+    assert.equal(socket.sent.length, 0)
+    manager.stop()
+})
+
+test("transient authority failure withholds updates but keeps a subscription for recovery", async () => {
+    const h = musicServiceHarness(),
+        socket = new Socket()
+    let unavailable = false
+    const scheduled: (() => void)[] = []
+    const manager = new NativeMusicConnections({
+        music: h.service,
+        authenticate: async () => actor("9"),
+        authorize: async () => {
+            if (unavailable) throw new MusicAccessError(503, "Guild changed")
+            return { inVoiceWithBot: false, canQueueTracks: true }
+        },
+        schedule: (fn) => {
+            scheduled.push(fn)
+            return () => {}
+        },
+    })
+    await manager.add(socket, new Headers())
+    socket.emit("message", '{"type":"subscribe","guildId":"1"}')
+    await settleMusic()
+    const before = socket.sent.filter((frame) => frame.type === "queueUpdate").length
+    unavailable = true
+    manager.invalidate("1")
+    scheduled.shift()!()
+    await settleMusic()
+    assert.equal(socket.sent.filter((frame) => frame.type === "queueUpdate").length, before)
+    assert.equal(
+        socket.sent.some((frame) => frame.type === "unsubscribed"),
+        false
+    )
+    unavailable = false
+    manager.invalidate("1")
+    scheduled.shift()!()
+    await settleMusic()
+    assert.equal(socket.sent.filter((frame) => frame.type === "queueUpdate").length, before + 1)
+    manager.stop()
+})

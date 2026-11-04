@@ -21,3 +21,15 @@ References inspected November 4, 2026:
 - [Fluxer voice protocol](https://docs.fluxer.com/voice/).
 - [Fluxer client connection adapter](https://github.com/fluxerapp/fluxer/blob/main/fluxer_app/src/features/voice/engine/v2/VoiceEngineV2AppConnectionHostAdapter.ts), [external key provider](https://github.com/fluxerapp/fluxer/blob/main/fluxer_app/pkgs/livekit-client/src/e2ee/KeyProvider.ts), and [key derivation](https://github.com/fluxerapp/fluxer/blob/main/fluxer_app/pkgs/livekit-client/src/e2ee/utils.ts). Protocol behavior was inspected; platform implementation code was not copied.
 - [LiveKit Node SDK](https://docs.livekit.io/reference/client-sdk-node/), with installed 1.2.1 source/types used to verify current exports, native dependencies, and queue-duration units (milliseconds).
+
+## Independent runtime and deployment
+
+The active composition root is native Fluxer and registers only music behavior. Retired Discord source and matching tests are archived under `legacy/discord/`, outside compile graphs and the production image context. Reusable pure helpers keep their current tests. The active packages no longer depend on Discord's SDK, its voice/DAVE/Opus stack, or `lavalink-client`.
+
+The native entrypoint and Prisma configuration load `.env.fluxer`, not the Discord `.env`. Separate database/storage, `dimby-fluxer` cookies, `fluxer-*` Compose services and independent local image names avoid accidental sharing. PostgreSQL row locks serialize OAuth refresh rotation across both processes. The Dashboard communicates with the Bot through HTTP and cookie-authenticated WebSockets on the same public cookie host; connect tokens in URLs are retired.
+
+Production voice uses a glibc Node image and pipe-only FFmpeg decoding. The metadata image also uses an arm64-capable Java base; the former Alpine JRE tag did not support the test machine's architecture. Metadata HTTP/local playback sources are disabled because actual streaming belongs to the native source/transport boundary.
+
+Gateway dispatches are acknowledged/deduplicated only after work is accepted. Permission-change checks coalesce per guild. Late guild availability can retry paused restoration without overwriting a user's newer action. Health and readiness remain separate, and shutdown suspends music before flushing snapshots, closing rooms, releasing the SDK and disconnecting databases.
+
+Automatic remote publication/deployment is disabled. Existing Discord tables/files/history are preserved; data transfer and deferred feature activation require separate migration work.

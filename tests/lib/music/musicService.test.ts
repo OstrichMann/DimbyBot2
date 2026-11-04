@@ -310,3 +310,60 @@ test("stale Dashboard revisions cannot mutate or cancel a newer playback generat
         (e) => e instanceof MusicError && e.status === 400
     )
 })
+
+test("unrelated platform changes do not keep an already empty voice channel alive indefinitely", async () => {
+    const h = musicServiceHarness()
+    await h.service.execute(actor, { type: "play", query: "A" })
+    await settleMusic()
+    h.listeners(false)
+    await h.service.onPlatformChange("1")
+    await h.clock.advance(60000)
+    await h.service.onPlatformChange("1")
+    await h.clock.advance(60000)
+    await settleMusic()
+    assert.equal(h.service.snapshot("1").connected, false)
+    assert.equal(h.service.snapshot("1").status, "paused")
+    await h.service.shutdown()
+})
+
+test("a lost voice transport suspends the current track and preserves the queue instead of skipping every source", async () => {
+    const { MusicTransportDisconnectedError } = await import("../../../src/lib/music/types.js")
+    const h = musicServiceHarness()
+    await h.service.execute(actor, { type: "play", query: "A" })
+    await h.service.execute(actor, { type: "play", query: "B" })
+    await settleMusic()
+    const transport = h.transports.get("1")!
+    transport.position = 2345
+    transport.plays[0].reject(new MusicTransportDisconnectedError())
+    await settleMusic()
+    const snapshot = h.service.snapshot("1")
+    assert.equal(snapshot.connected, false)
+    assert.equal(snapshot.current?.title, "A")
+    assert.equal(snapshot.queue[0]?.title, "B")
+    assert.equal(snapshot.positionMs, 2345)
+    assert.equal(snapshot.status, "paused")
+    await h.service.execute(actor, { type: "resume" })
+    await settleMusic()
+    assert.equal(h.service.snapshot("1").lastError, null)
+    await h.service.shutdown()
+})
+
+test("Gateway-unavailable leave and transport cleanup failures still publish a disconnected paused snapshot", async () => {
+    const h = musicServiceHarness()
+    await h.service.execute(actor, { type: "play", query: "A" })
+    await settleMusic()
+    h.failLeave()
+    h.denyBot()
+    const transport = h.transports.get("1")!,
+        original = transport.disconnect.bind(transport)
+    transport.disconnect = async () => {
+        await original()
+        throw new Error("Room cleanup failed")
+    }
+    await h.service.onPlatformChange("1")
+    const state = h.service.snapshot("1")
+    assert.equal(state.connected, false)
+    assert.equal(state.status, "paused")
+    assert.equal(state.current?.title, "A")
+    await h.service.shutdown()
+})

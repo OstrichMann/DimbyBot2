@@ -13,7 +13,7 @@ import {
 } from "../shared/fluxer-player-state.js"
 
 export interface MusicHttpDependencies {
-    music: Pick<MusicService, "execute" | "snapshot">
+    music: Pick<MusicService, "execute" | "snapshot" | "subscribe">
     playlists: Pick<PlaylistService, "execute">
     access: Pick<FluxerAccess, "authorizeMusic">
     resolver: Pick<SourceResolver, "search">
@@ -178,7 +178,7 @@ export async function handleMusicRequest(
                     primaryPermissions: [
                         "VIEW_PLAYER",
                         ...((await deps.viewer(guildId, actor.userId)).canQueueTracks
-                            ? ["QUEUE_TRACKS", "CONTROL_PLAYER"]
+                            ? ["MANAGE_QUEUE", "CONTROL_PLAYBACK"]
                             : []),
                     ],
                     oauthPermissions: [],

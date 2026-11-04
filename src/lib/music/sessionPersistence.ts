@@ -146,7 +146,19 @@ export class SessionPersistence {
                 (row.textChannelId !== null && !isFluxerId(row.textChannelId))
             )
                 continue
+            if (
+                this.known.has(row.guildId) ||
+                this.dirty.has(row.guildId) ||
+                this.dependencies.service.snapshot(row.guildId).revision > 0
+            )
+                continue
             if (!(await this.dependencies.canRestore(row))) continue
+            if (
+                this.known.has(row.guildId) ||
+                this.dirty.has(row.guildId) ||
+                this.dependencies.service.snapshot(row.guildId).revision > 0
+            )
+                continue
             this.known.add(row.guildId)
             this.dependencies.service.restore({ ...row, snapshot })
         }

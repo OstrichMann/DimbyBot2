@@ -1,5 +1,7 @@
 import type { MusicSnapshot, MusicTrack } from "./music-contract.js"
 
+const instanceId = globalThis.crypto.randomUUID()
+
 export interface MusicViewer {
     inVoiceWithBot: boolean
     canQueueTracks: boolean
@@ -22,6 +24,7 @@ export function nativeTrackSummary(track: MusicTrack) {
 export function nativePlayerState(snapshot: MusicSnapshot, viewer: MusicViewer) {
     return {
         guildId: snapshot.guildId,
+        instanceId,
         revision: snapshot.revision,
         hasPlayer: !!snapshot.current || snapshot.connected,
         status: snapshot.status,
@@ -29,6 +32,7 @@ export function nativePlayerState(snapshot: MusicSnapshot, viewer: MusicViewer) 
         loopMode: snapshot.repeatMode,
         autoplay: false,
         volume: snapshot.volume,
+        lastError: snapshot.lastError,
         queueCount: snapshot.queue.length,
         ...viewer,
         botInVoiceChannel: snapshot.connected,
@@ -44,3 +48,13 @@ export function nativePlayerState(snapshot: MusicSnapshot, viewer: MusicViewer) 
 }
 export type NativePlayerState = ReturnType<typeof nativePlayerState>
 export type NativeQueueTrack = ReturnType<typeof nativeTrackSummary>
+
+/** Revisions order updates within one Bot process; a new process starts a fresh sequence. */
+export function acceptsNativePlayerUpdate(
+    previous: { instanceId: string; revision: number } | null,
+    next: { instanceId: string; revision: number }
+): boolean {
+    return (
+        !previous || next.instanceId !== previous.instanceId || next.revision >= previous.revision
+    )
+}

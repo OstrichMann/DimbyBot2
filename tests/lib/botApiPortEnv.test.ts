@@ -3,13 +3,13 @@ import { describe, it } from "node:test"
 import { resolvedBotApiPort } from "../../src/lib/botApiPortEnv.js"
 
 describe("resolvedBotApiPort", () => {
-    it("defaults to 3001 when unset or whitespace", () => {
+    it("defaults to 3010 when unset or whitespace", () => {
         const prev = process.env.BOT_API_PORT
         try {
             delete process.env.BOT_API_PORT
-            assert.equal(resolvedBotApiPort(), 3001)
+            assert.equal(resolvedBotApiPort(), 3010)
             process.env.BOT_API_PORT = "   "
-            assert.equal(resolvedBotApiPort(), 3001)
+            assert.equal(resolvedBotApiPort(), 3010)
         } finally {
             if (prev === undefined) delete process.env.BOT_API_PORT
             else process.env.BOT_API_PORT = prev
@@ -27,15 +27,15 @@ describe("resolvedBotApiPort", () => {
             assert.equal(resolvedBotApiPort(), 8080)
 
             process.env.BOT_API_PORT = "0"
-            assert.equal(resolvedBotApiPort(), 3001)
+            assert.equal(resolvedBotApiPort(), 3010)
             process.env.BOT_API_PORT = "65536"
-            assert.equal(resolvedBotApiPort(), 3001)
-            process.env.BOT_API_PORT = "3001.5"
-            assert.equal(resolvedBotApiPort(), 3001)
+            assert.equal(resolvedBotApiPort(), 3010)
+            process.env.BOT_API_PORT = "3010.5"
+            assert.equal(resolvedBotApiPort(), 3010)
             process.env.BOT_API_PORT = "abc"
-            assert.equal(resolvedBotApiPort(), 3001)
+            assert.equal(resolvedBotApiPort(), 3010)
             process.env.BOT_API_PORT = "-1"
-            assert.equal(resolvedBotApiPort(), 3001)
+            assert.equal(resolvedBotApiPort(), 3010)
         } finally {
             if (prev === undefined) delete process.env.BOT_API_PORT
             else process.env.BOT_API_PORT = prev

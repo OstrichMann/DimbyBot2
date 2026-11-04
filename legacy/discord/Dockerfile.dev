@@ -1,0 +1,70 @@
+# Node 24 — keep in sync with production Dockerfiles and package.json engines.
+FROM node:24-bookworm-slim
+
+WORKDIR /app
+
+# Install yt-dlp (pinned via docker/ytdlp-requirements.txt; bump after testing).
+# Also install build tools needed for native Node.js modules.
+# Install yt-dlp into a shared venv so non-root users can execute it.
+COPY docker/ytdlp-requirements.txt /tmp/ytdlp-requirements.txt
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        python3 \
+        python3-pip \
+        python3-venv \
+        ffmpeg \
+        build-essential \
+        autoconf \
+        automake \
+        libtool \
+        g++ \
+        gosu \
+        wget \
+    && ln -s /usr/sbin/gosu /usr/local/bin/su-exec \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir -r /tmp/ytdlp-requirements.txt \
+    && YTDLP_BIN="/opt/venv/bin/yt-dlp" \
+    && test -n "$YTDLP_BIN" && test -x "$YTDLP_BIN" \
+    && ln -sf "$YTDLP_BIN" /usr/local/bin/yt-dlp \
+    && yt-dlp --version
+
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
+
+# Copy package files and install ALL dependencies (including dev)
+COPY package.json yarn.lock ./
+COPY scripts/postinstall-prisma.mjs scripts/prepare-husky.mjs scripts/
+RUN yarn install && yarn cache clean --all
+
+# Copy the rest of the application code (will be overridden by mounts in dev)
+COPY . .
+RUN yarn db:generate
+
+# Dev image skips a production build; bind-mounted source + `yarn dev` (tsc watch + nodemon).
+
+# Copy the entrypoint script outside /app so the dev bind mount
+# does not overwrite it with the host copy.
+COPY --chmod=755 entrypoint.sh /usr/local/bin/dimbybot-entrypoint.sh
+COPY --chmod=755 entrypoint.dev.sh /usr/local/bin/dimbybot-dev-entrypoint.sh
+
+# Do not `chown -R` all of `/app` (node_modules has 100k+ files and rebuilds take minutes).
+# `entrypoint.dev.sh` fixes ownership of writable paths at container start.
+RUN groupadd --system devuser && useradd --system --gid devuser --create-home devuser \
+    && mkdir -p /app/dist
+
+# Runtime environment (see Dockerfile in repo root for the full list):
+# Autoplay: Spotify API on the bot (compose / .env):
+#   LAVALINK_SPOTIFY_CLIENT_ID, LAVALINK_SPOTIFY_CLIENT_SECRET or SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
+# MusicBrainz fallback: MUSICBRAINZ_CONTACT or MUSICBRAINZ_CONTACT_URL; MUSICBRAINZ_SIMILAR=off to disable
+
+# Use the same entrypoint as production so dev containers generate
+# lavaNodesConfig.js from compose environment before starting nodemon.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD sh -c 'wget -qO- http://127.0.0.1:${BOT_API_PORT:-3001}/health || exit 1'
+
+# Root only for dimbybot-dev-entrypoint.sh (chown /app/dist) then su-exec to devuser.
+USER root
+
+ENTRYPOINT ["/usr/local/bin/dimbybot-dev-entrypoint.sh"]
+
+CMD ["yarn", "dev"]

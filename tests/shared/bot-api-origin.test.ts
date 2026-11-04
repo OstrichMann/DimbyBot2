@@ -37,7 +37,7 @@ describe("getBotApiOrigin", () => {
         withEnv(
             { API_PROXY_TARGET: "   ", NODE_ENV: "development", BOT_API_PORT: undefined },
             () => {
-                assert.equal(getBotApiOrigin(), "http://localhost:3001")
+                assert.equal(getBotApiOrigin(), "http://localhost:3010")
             }
         )
     })

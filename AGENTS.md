@@ -1,24 +1,24 @@
 # Repository Guidelines
 
-This repo is **two applications**. Names are in [`GLOSSARY.md`](GLOSSARY.md); load-bearing trade-offs are in [`docs/adr/`](docs/adr/). Docker, host Node, and `dev-env.sh` live in [`README.md`](README.md).
+This repo is **two applications**. Archived Discord source/tests under `legacy/discord/` are outside active compile/test/lint/image graphs and must never be imported by active code. Names are in [`GLOSSARY.md`](GLOSSARY.md); load-bearing trade-offs are in [`docs/adr/`](docs/adr/). Docker, host Node, and `dev-env.sh` live in [`README.md`](README.md).
 
 ## Two applications
 
-- **Bot** — Discord process (slash commands, playback, Bot API). Entry: [`src/server.ts`](src/server.ts) → `dist/server.js`. Do not extend leftover [`src/index.ts`](src/index.ts).
+- **Bot** — native Fluxer process (prefix commands, playback, Bot API). Entry: [`src/server.ts`](src/server.ts) → `dist/server.js`. Retired Discord code is archived in [`legacy/discord/`](legacy/discord/README.md).
 - **Dashboard** — Next.js UI in nested [`src/web/`](src/web/). Do not call it a portal, control panel, or “web app” as a second name.
 - **Contract** — The Dashboard talks to the Bot over HTTP/WebSocket and env-configured URLs. Never import `src/web/` from Bot code. Logic used by both apps goes in [`src/shared/`](src/shared/).
 - **Compile graphs** — Root `tsc` uses `rootDir: src` and `exclude: ["src/web"]`. `yarn build:bot` does not emit the Dashboard. Nested `src/web/` plus that exclude is the layout; do not relocate the Dashboard unless a human asks. See [ADR 0007](docs/adr/0007-two-apps-nested-dashboard.md).
 
 ## Bot placement (`src/` except `src/web/`)
 
-- `src/commands/`, `src/events/`, `src/deploy/` — Discord surface
+- `src/commands/` — native Fluxer prefix-command surface; retired event loaders and slash deployment live in the archive
 - `src/botApi/` — HTTP/WS handlers the Dashboard calls
 - `src/repositories/` and [`prisma/`](prisma/) — persistence
 - `src/lib/` — Bot runtime services (client, logger, database)
 - `src/util/` — Bot helpers
 - `src/shared/` — isomorphic logic for both apps (root `tsc` emits `dist/shared/`; Dashboard imports `@/shared/*`)
 - `src/workers/` — isolated workers
-- `src/types/` — shared command/client types (`Command` uses `SlashCommandData` + `SlashCommandExecute`; `BotClient` is exported for helpers)
+- `src/types/` — app-owned DTO/logger types; Bot-only `BotClient` alias is exported from `src/types/bot.ts`
 
 ## Dashboard placement (`src/web/`)
 
@@ -43,16 +43,16 @@ Use **Yarn**, not npm (`packageManager` in `package.json`).
 - `yarn test` — `yarn test:bot` then `yarn test:web`
 - `yarn start` — compiled Bot (`node dist/server.js`); build the Bot first
 - `yarn dev` / `yarn dev:web` — Bot watch + nodemon; Dashboard Next dev server
-- `yarn deployGlobal` / `yarn destroyGlobal` / `yarn deployGuild` / `yarn destroyGuild` — slash commands (need `dist/deploy/`; `deployGuild` needs `GUILD_ID`)
+- Slash deployment scripts are retired; CI validates both applications without automatic publication/deployment.
 
 Bring-up, Compose, and Node-on-host details: [README.md](README.md).
 
 ## Coding style
 
 - TypeScript ESM. Bot local imports use `.js` extensions (NodeNext). Indentation: 4 spaces. Semicolons off; Prettier in `.prettierrc.json` (print width 100, double quotes).
-- **TSDoc:** Short `/** … */` summaries on non-obvious exports and non-trivial logic (Discord/Lavalink/security invariants). Use real TypeScript parameter and return types; do not duplicate them with `@param {import('…')}`. Skip noise on obvious getters and wrappers.
+- **TSDoc:** Short `/** … */` summaries on non-obvious exports and non-trivial logic (Fluxer/voice/security invariants). Use real TypeScript parameter and return types; do not duplicate them with `@param {import('…')}`. Skip noise on obvious getters and wrappers.
 - **`strict` is on** in both tsconfigs; **`strictNullChecks` and `noImplicitAny` are off**. Leave those flags as they are unless a human asks. New code should still be well-typed (guards, no new implicit `any` at boundaries).
-- Root `lavaNodesConfig.d.ts` types generated `lavaNodesConfig.js`.
+- Native metadata search uses `LAVALINK_ORIGIN`/`LAVALINK_PASSWORD`; no generated JavaScript node configuration.
 
 ## Testing
 
@@ -60,7 +60,7 @@ Typecheck, lint, Prettier, and tests apply to **both** the Bot and the Dashboard
 
 `yarn test` runs before every commit. The Husky `pre-commit` hook blocks the commit, and the CI validate job runs the same script on pull requests and on `main` (image build and push stay on `main` and `workflow_dispatch`). Do not commit when the suite is red, and do not skip the hook.
 
-A new feature ships with a unit test in the same change: one assertion per distinct reply, status, or security decision of a slash command, Discord or Lavalink event, Bot API handler, Dashboard action, background job, or helper. A change to an existing feature, a bug fix, or a security fix adds or updates the assertion that would have failed on the old behavior. A refactor that does not change a reply, status, or security decision does not require a test edit.
+A new feature ships with a unit test in the same change: one assertion per distinct reply, status, or security decision of a native command, Fluxer or voice event, Bot API handler, Dashboard action, background job, or helper. A change to an existing feature, a bug fix, or a security fix adds or updates the assertion that would have failed on the old behavior. A refactor that does not change a reply, status, or security decision does not require a test edit.
 
 - Put `*.test.ts` under `tests/`, mirroring the source path (`src/commands/music/Skip.ts` → `tests/commands/music/Skip.test.ts`). Dashboard tests go in `tests/web/`. Shared fakes live in `tests/test-support/`. Do not place tests next to production files.
 - Style: Node `node:test` + `tsx` + `node:assert/strict`.
@@ -76,7 +76,7 @@ Keep messages short and descriptive (e.g. `fix lavalink reconnect`). PRs need a 
 
 ## Configuration and secrets
 
-Local dev needs `.env` and `lavaNodesConfig.js` in the repo root. Use `.env.example` and `lavaNodesConfig.js.example`. Never commit tokens or credentials.
+Local dev uses a dedicated `.env.fluxer` based on `.env.example`, with fresh Fluxer credentials, database and session secret. Never reuse the Discord database or commit tokens/credentials.
 
 ## Tooling
 

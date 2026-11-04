@@ -1,7 +1,11 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import type { NativePlayerState, NativeQueueTrack } from "@/shared/fluxer-player-state.js"
+import {
+    acceptsNativePlayerUpdate,
+    type NativePlayerState,
+    type NativeQueueTrack,
+} from "@/shared/fluxer-player-state.js"
 import { playerWsFallbackProtocol, rewriteLocalDevPlayerWsUrl } from "@/shared/player-ws-url.js"
 
 export function useNativePlayerSocket(guildId: string) {
@@ -60,14 +64,17 @@ export function useNativePlayerSocket(guildId: string) {
                             frame.type === "queueUpdate" &&
                             frame.guildId === guildId &&
                             frame.state?.guildId === guildId &&
+                            typeof frame.state.instanceId === "string" &&
                             Number.isSafeInteger(frame.state.revision) &&
                             Array.isArray(frame.queue)
-                        )
+                        ) {
+                            setError(null)
                             setUpdate((previous) =>
-                                !previous || frame.state.revision >= previous.state.revision
+                                acceptsNativePlayerUpdate(previous?.state ?? null, frame.state)
                                     ? { state: frame.state, queue: frame.queue }
                                     : previous
                             )
+                        }
                     } catch {
                         setError("Unable to read live update")
                     }

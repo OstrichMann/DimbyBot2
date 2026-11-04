@@ -21,7 +21,7 @@ describe("resolvePrismaDatasourceUrl", () => {
                 POSTGRES_PASSWORD: "p@ss word",
                 POSTGRES_DB: "bot_db",
             }),
-            "postgresql://bot_user:p%40ss%20word@localhost:5432/bot_db"
+            "postgresql://bot_user:p%40ss%20word@localhost:5434/bot_db"
         )
     })
 
@@ -33,11 +33,11 @@ describe("resolvePrismaDatasourceUrl", () => {
                 POSTGRES_PASSWORD: "secret",
                 POSTGRES_DB: "bot_db",
             }),
-            "postgresql://bot_user:secret@localhost:5432/bot_db"
+            "postgresql://bot_user:secret@localhost:5434/bot_db"
         )
     })
 
-    it("uses postgres-db when assembling from POSTGRES_* in production", () => {
+    it("uses fluxer-db when assembling from POSTGRES_* in production", () => {
         assert.equal(
             resolvePrismaDatasourceUrl({
                 NODE_ENV: "production",
@@ -45,7 +45,7 @@ describe("resolvePrismaDatasourceUrl", () => {
                 POSTGRES_PASSWORD: "secret",
                 POSTGRES_DB: "bot_db",
             }),
-            "postgresql://bot_user:secret@postgres-db:5432/bot_db"
+            "postgresql://bot_user:secret@fluxer-db:5432/bot_db"
         )
     })
 
@@ -56,14 +56,14 @@ describe("resolvePrismaDatasourceUrl", () => {
                 POSTGRES_PASSWORD: "secret",
                 POSTGRES_DB: "db/name?x#y",
             }),
-            "postgresql://user%40name:secret@localhost:5432/db%2Fname%3Fx%23y"
+            "postgresql://user%40name:secret@localhost:5434/db%2Fname%3Fx%23y"
         )
     })
 
     it("falls back to the generate dummy URL when neither source is set", () => {
         assert.equal(
             resolvePrismaDatasourceUrl({}),
-            "postgresql://postgres:postgres@localhost:5432/postgres"
+            "postgresql://generate_only:unused@database-not-configured.invalid:5432/generate_only"
         )
     })
 })

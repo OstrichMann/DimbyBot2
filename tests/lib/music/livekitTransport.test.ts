@@ -216,3 +216,44 @@ test("canceled connect closes a late room instead of leaving a live audio sessio
     await transport.disconnect()
     await h.transport.disconnect()
 })
+
+test("room loss during source preparation rejects the next play as a transport failure and closes its source", async () => {
+    const { MusicTransportDisconnectedError } = await import("../../../src/lib/music/types.js")
+    let lost: () => void,
+        closed = 0
+    const transport = new LivekitTransport({
+        openRoom: async () => ({
+            sink: {
+                queuedDuration: 0,
+                capture: async () => {},
+                drain: async () => {},
+                clear: () => {},
+            },
+            disconnect: async () => {},
+            onDisconnect: (listener) => {
+                lost = listener
+                return () => {}
+            },
+        }),
+        decode: async function* () {
+            yield new Int16Array(1920)
+        },
+    })
+    await transport.connect(grant, new AbortController().signal)
+    lost!()
+    await assert.rejects(
+        transport.play(
+            {
+                ...preparedFixture(),
+                close: async () => {
+                    closed++
+                },
+            },
+            0,
+            new AbortController().signal
+        ),
+        MusicTransportDisconnectedError
+    )
+    assert.equal(closed, 1)
+    await transport.disconnect()
+})

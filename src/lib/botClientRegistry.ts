@@ -25,7 +25,7 @@ export function setBotClient(client: BotClient): void {
     botClient = client
 }
 
-/** Bot client when this Node process also runs the Discord bot; null if only the Next app is running. */
+/** Bot client when this Node process also runs the Fluxer Bot; null if only the Next app is running. */
 export function tryGetBotClient(): BotClient | null {
     return botClient
 }

@@ -1,4 +1,4 @@
-import { redactTokenLikeString } from "./auth-base-config.js"
+import { redactTokenLikeString } from "./redact-secrets.js"
 
 export type AuditLogLevel = "debug" | "info" | "warn" | "error"
 

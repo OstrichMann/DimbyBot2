@@ -144,7 +144,13 @@ test("native routes reject invalid action payloads and keep queue writes attache
     assert.equal(h.service.snapshot("1").queue.length, 0)
     assert.equal((await h.request("GET", "/api/guilds")).status, 200)
     assert.equal((await h.request("GET", "/api/guilds/voice-context")).status, 200)
-    assert.equal((await h.request("GET", "/api/guilds/1/dashboard-permissions")).status, 200)
+    const permissions = await h.request("GET", "/api/guilds/1/dashboard-permissions")
+    assert.equal(permissions.status, 200)
+    assert.deepEqual((permissions.body as any).data.primaryPermissions, [
+        "VIEW_PLAYER",
+        "MANAGE_QUEUE",
+        "CONTROL_PLAYBACK",
+    ])
     h.deps.controlChannel = () => null
     const blank = musicServiceHarness()
     h.deps.music = blank.service

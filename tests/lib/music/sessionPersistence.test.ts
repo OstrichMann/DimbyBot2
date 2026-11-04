@@ -185,3 +185,51 @@ test("a failed save retries the newest snapshot rather than overwriting a newer 
     await h.service.shutdown()
     await persistence.shutdown()
 })
+
+test("late guild restoration is idempotent and cannot overwrite a user's mutation during permission lookup", async () => {
+    const h = musicServiceHarness(),
+        store = memoryStore()
+    store.rows.set("1", {
+        guildId: "1",
+        voiceChannelId: "2",
+        textChannelId: "4",
+        snapshot: {
+            version: 2,
+            current: musicTrack("Saved"),
+            queue: [],
+            volume: 40,
+            repeatMode: "off",
+            paused: true,
+            positionMs: 1000,
+        },
+    })
+    let available = false,
+        release: () => void
+    const waiting = new Promise<void>((resolve) => {
+        release = resolve
+    })
+    const persistence = new SessionPersistence({
+        service: h.service,
+        store,
+        schedule: h.clock.schedule,
+        canRestore: async () => {
+            if (!available) return false
+            await waiting
+            return true
+        },
+    })
+    await persistence.restore()
+    assert.equal(h.service.snapshot("1").current, null)
+    available = true
+    const restoring = persistence.restore()
+    await settleMusic()
+    await h.service.execute(actor, { type: "volume", percent: 70 })
+    release!()
+    await restoring
+    assert.equal(h.service.snapshot("1").volume, 70)
+    assert.equal(h.service.snapshot("1").current, null)
+    await persistence.restore()
+    assert.equal(h.service.snapshot("1").volume, 70)
+    await h.service.shutdown()
+    await persistence.shutdown()
+})

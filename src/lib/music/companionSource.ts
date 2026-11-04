@@ -4,7 +4,7 @@ import {
     companionLatestVersionPath,
     companionLengthMsFromPlayerJson,
     ensureCompanionOriginStreamUrl,
-} from "../../util/youtubeCompanionPlayback.js"
+} from "./companionProtocol.js"
 import { fluxerRecord } from "../fluxer/entities.js"
 import type { PreparedSource } from "./types.js"
 

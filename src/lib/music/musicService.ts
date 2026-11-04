@@ -10,6 +10,7 @@ import type { FluxerAccess } from "../fluxer/access.js"
 import type { FluxerVoice } from "../fluxer/voice.js"
 import type { SourceResolver } from "./sourceResolver.js"
 import type { MusicTransport, PreparedSource } from "./types.js"
+import { MusicTransportDisconnectedError } from "./types.js"
 import { canonicalMusicTrack } from "./sessionPersistence.js"
 
 export class MusicError extends Error {
@@ -360,10 +361,12 @@ export class MusicService {
             await this.suspend(state)
             return
         }
-        state.cancelEmpty?.()
-        state.cancelEmpty = undefined
-        if (!this.dependencies.hasListeners(guildId, state.value.voiceChannelId)) {
+        if (this.dependencies.hasListeners(guildId, state.value.voiceChannelId)) {
+            state.cancelEmpty?.()
+            state.cancelEmpty = undefined
+        } else if (!state.cancelEmpty) {
             state.cancelEmpty = this.schedule(() => {
+                state.cancelEmpty = undefined
                 void this.suspend(state).catch(() => this.report("Music idle cleanup failed"))
             }, this.emptyTimeout)
         }
@@ -468,18 +471,30 @@ export class MusicService {
     }
     private async stopTrack(state: GuildMusic): Promise<void> {
         state.trackController?.abort()
-        await state.transport?.stop()
-        state.runner = undefined
-        state.trackController = undefined
-        state.seekable = false
+        try {
+            await state.transport?.stop()
+        } catch {
+            this.report("Music track cleanup failed")
+        } finally {
+            state.runner = undefined
+            state.trackController = undefined
+            state.seekable = false
+        }
     }
     private async disconnect(state: GuildMusic): Promise<void> {
         try {
             await state.transport?.disconnect()
+        } catch {
+            this.report("Music transport cleanup failed")
         } finally {
-            await this.dependencies.voice.leave(state.value.guildId)
-            state.transport = undefined
-            state.value.connected = false
+            try {
+                await this.dependencies.voice.leave(state.value.guildId)
+            } catch {
+                this.report("Voice leave could not be sent")
+            } finally {
+                state.transport = undefined
+                state.value.connected = false
+            }
         }
     }
     private async suspend(state: GuildMusic): Promise<void> {
@@ -575,6 +590,7 @@ export class MusicService {
                 transport.setVolume(state.value.volume)
                 if (state.value.status === "paused") await transport.pause()
                 if (!current()) return
+                state.value.lastError = null
                 this.publish(state)
                 handedOff = true
                 await transport.play(prepared, offset, signal)
@@ -582,12 +598,12 @@ export class MusicService {
                     await this.mutate(state, async () => {
                         if (current()) await this.advance(state, "end")
                     })
-            } catch {
+            } catch (error) {
                 if (!current()) return
                 this.report(
                     verified ? "Music track playback failed" : "Music voice connection failed"
                 )
-                if (!verified) {
+                if (!verified || error instanceof MusicTransportDisconnectedError) {
                     state.value.lastError = "Voice connection unavailable; resume to retry"
                     await this.suspend(state)
                 } else

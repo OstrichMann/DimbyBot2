@@ -1,4 +1,5 @@
-import "dotenv/config"
+import { config as loadEnv } from "dotenv"
+loadEnv({ path: [".env.fluxer.local", ".env.fluxer"], quiet: true })
 import { defineConfig } from "prisma/config"
 // Runtime image copies this compiled module next to prisma.config.ts (see Dockerfile).
 // Do not import other `src/` files here — they are not in the production image.

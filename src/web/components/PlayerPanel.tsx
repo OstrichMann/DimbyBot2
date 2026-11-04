@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import Link from "next/link"
-import type { NativePlayerState, NativeQueueTrack } from "@/shared/fluxer-player-state.js"
+import {
+    acceptsNativePlayerUpdate,
+    type NativePlayerState,
+    type NativeQueueTrack,
+} from "@/shared/fluxer-player-state.js"
 import type { MusicTrack } from "@/shared/music-contract.js"
 import {
     getMusicStateAction,
@@ -34,7 +38,7 @@ export function PlayerPanel({ guildId }: { guildId: string }) {
     const generation = useRef(0)
     const live = useNativePlayerSocket(guildId)
     const apply = useCallback((next: NativePlayerState) => {
-        if (next.revision < (playerRef.current?.revision ?? -1)) return false
+        if (!acceptsNativePlayerUpdate(playerRef.current, next)) return false
         playerRef.current = next
         setPlayer(next)
         setPosition(next.positionMs)
@@ -138,12 +142,12 @@ export function PlayerPanel({ guildId }: { guildId: string }) {
                     All servers
                 </Link>
             </div>
-            {error ? (
+            {error || player?.lastError ? (
                 <p
                     role="alert"
                     className="rounded border border-destructive/40 bg-destructive/10 p-3 text-sm"
                 >
-                    {error}
+                    {error ?? player?.lastError}
                 </p>
             ) : null}
             {live.error ? (
@@ -291,7 +295,7 @@ export function PlayerPanel({ guildId }: { guildId: string }) {
                         min={0}
                         max={100}
                         value={player?.volume ?? 100}
-                        disabled={busy || !canControl}
+                        disabled={busy || (!canControl && !canQueue)}
                         onChange={(event) =>
                             setPlayer((state) =>
                                 state ? { ...state, volume: Number(event.target.value) } : state

@@ -264,16 +264,18 @@ export class FluxerGateway {
                             ? data.id
                             : undefined
                     const duplicate = messageId && this.seenMessages.has(messageId)
-                    if (messageId && !duplicate) {
-                        this.seenMessages.set(messageId, now + 600_000)
-                        if (this.seenMessages.size > 10_000)
-                            this.seenMessages.delete(this.seenMessages.keys().next().value)
-                    }
                     if (!duplicate) {
                         try {
                             await this.dependencies.onDispatch(event)
                         } catch {
                             this.dependencies.onError(new Error("Fluxer dispatch handler failed"))
+                            this.reconnect()
+                            return
+                        }
+                        if (messageId) {
+                            this.seenMessages.set(messageId, now + 600_000)
+                            if (this.seenMessages.size > 10_000)
+                                this.seenMessages.delete(this.seenMessages.keys().next().value)
                         }
                     }
                     if (this.stopped || epoch !== this.epoch) return

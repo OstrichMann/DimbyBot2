@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { isBlockedUserMediaUrl } from "../../util/userMediaUrl.js"
-import { youtubeVideoIdFromUri } from "../../util/youtubeCompanionPlayback.js"
+import { youtubeVideoIdFromUri } from "./companionProtocol.js"
 import type { CompanionSource } from "./companionSource.js"
 import type { LavalinkSearch, MusicSearchResult } from "./lavalinkSearch.js"
 import type { PublicMediaFetcher } from "./mediaFetch.js"

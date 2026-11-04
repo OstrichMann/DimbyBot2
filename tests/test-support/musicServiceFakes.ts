@@ -87,6 +87,7 @@ export function musicServiceHarness() {
         voice = new Map<string, string>()
     let denied = false,
         botDenied = false,
+        leaveFailed = false,
         listeners = true,
         prepares = 0,
         closes = 0
@@ -130,6 +131,7 @@ export function musicServiceHarness() {
             },
             leave: async (id) => {
                 voice.delete(id)
+                if (leaveFailed) throw new Error("Gateway unavailable")
             },
             channelId: (id) => voice.get(id) ?? null,
         },
@@ -160,6 +162,9 @@ export function musicServiceHarness() {
         },
         deny: (value = true) => {
             denied = value
+        },
+        failLeave: () => {
+            leaveFailed = true
         },
         denyBot: () => {
             botDenied = true

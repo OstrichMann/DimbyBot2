@@ -1,123 +1,112 @@
-# DimbyBot2
+# DimbyBot for Fluxer
 
-![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/bpeters132/DimbyBot2?utm_source=oss&utm_medium=github&utm_campaign=bpeters132%2FDimbyBot2&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+An independent Fluxer version of DimbyBot, focused on music. It has two applications: the **Bot** (`src/server.ts`) and the **Dashboard** (Next.js in `src/web/`). The Dashboard communicates with the Bot over HTTP and authenticated WebSockets. Shared contracts live in `src/shared/`.
 
-A Discord bot for friends! Rewritten in Node.js.
-
-## About
-
-This project is a rewrite of the original DimbyBot using Node.js and the discord.js library.
-Author is just a dude that can barely code but can figure things out.
+The Bot uses Fluxer's native REST/Gateway protocol and LiveKit voice grants. FFmpeg decodes prepared byte streams into PCM. Lavalink is a **metadata search service only**; it never owns a queue or a Fluxer voice session. Saved queues restore paused and require an authorized user to resume.
 
 ## Features
 
-- Music
-- Single simple clear command
-- More to come
+- Search and URL playback, YouTube companion streaming, and supported catalog-to-audio resolution.
+- Pause/resume, skip, stop, leave, seek, volume, repeat, shuffle, and ordered queue editing.
+- Personal playlists: create, list, view, rename, add, move, remove, delete, and enqueue.
+- A configurable text control channel, native now-playing embeds, and a music Dashboard with Fluxer OAuth and live updates.
+- Fresh membership/channel/voice checks for mutations, owner-scoped playlists, bounded source fetching, DNS pinning and redirect checks, and versioned restart snapshots.
 
-## Prerequisites
+Countdowns, downloads/local-file playback, upload alerts, guild log forwarding, autoplay, round-robin queues, and admin tools are deferred. Their retired Discord implementations and tests are preserved in [legacy/discord](legacy/discord/README.md). They do not start jobs or register commands in the Fluxer runtime. Existing Discord data is not automatically transferred.
 
-- **Local dev (optional):** Node.js 24+ if you run `yarn dev` / `yarn typecheck` on the host (`engines` in `package.json`; `.nvmrc` is only for tools like nvm—not required on the server)
-- **Docker / production:** Node comes from the image (`node:24-*` in `Dockerfile` / `Dockerfile.web`); the host does not need Node or nvm installed
-- [Yarn](https://yarnpkg.com/) (this repo uses Yarn 1.x; see `packageManager` in `package.json`)
-- **Docker Compose v2.24.4 or newer** if you use `./dev-env.sh` / `docker-compose.dev.yml` (the dev override uses `ports: !override`, which requires that Compose version). If you see `unknown tag !override`, upgrade the Compose V2 plugin: [Docker Compose install](https://docs.docker.com/compose/install/linux/) / update Docker Desktop.
+## Independent configuration
 
-## Installation
+Use Node 24+ and Yarn. Copy `.env.example` to **`.env.fluxer`** and configure it locally. This version does not load a Discord `.env` or generate `lavaNodesConfig.js`.
 
-1.  Clone the repository:
+Create a Fluxer application with a Bot, install it in a test server, and supply `FLUXER_BOT_TOKEN`, `FLUXER_CLIENT_ID`, and server-only `FLUXER_CLIENT_SECRET`. The configured instance origin is discovered through `/.well-known/fluxer`; API, Gateway, assets and authorization URLs follow that instance.
 
-    ```bash
-    git clone <repository-url>
-    cd DimbyBot2
-    ```
-
-2.  Install dependencies:
-
-    ```bash
-    yarn install
-    ```
-
-## Configuration (deployment)
-
-**Local:** Copy `.env.example` to `.env` and fill in values. For Lavalink, use `lavaNodesConfig.js.example` as a template for `lavaNodesConfig.js` (or rely on `entrypoint.sh` in Docker to generate it from env vars).
-
-**GitHub Actions:** Production deploy is defined in `.github/workflows/deploy.yml`. It builds container images, pushes to GHCR, and SSHes to your server to run `docker compose`. Configure the required values as **repository secrets** in GitHub (**Settings → Secrets and variables → Actions**). See the workflow’s “Generate .env file” step for the secret names used on the server. Optional **`FEEDBACK_EMAIL`** is the inbox for the disabled `/suggest` feature (see `.env.example`).
-
-## Local Development Setup
-
-Dev splits **backend in Docker** from the **dashboard on the host**:
-
-| Piece                                         | Where it runs                                            | How                                                                                             |
-| --------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Bot, Lavalink, yt-cipher, companion, Postgres | Docker (`docker-compose.yml` + `docker-compose.dev.yml`) | `./dev-env.sh build` then `./dev-env.sh up` (or `yarn docker:dev:build` / `yarn docker:dev:up`) |
-| Next.js dashboard                             | **Host** (not in the dev compose stack)                  | `yarn web:install` then `yarn dev:web`                                                          |
-
-Production is different: the dashboard is the separate `dimbybot-web` container (`docker-compose.dashboard.yml` + `Dockerfile.web`). Do not expect `dimbybot-web` when using the dev compose files.
-
-1.  **Prerequisites:** Docker (Compose v2.24.4+ for dev overrides) and, for the portal, Node.js 24+ on the host if you run `yarn dev:web` outside Docker.
-2.  **Environment:** Copy `.env.example` to `.env` and fill values. The bot container reads this via compose; `yarn dev:web` uses the same root `.env` / `src/web/.env` patterns as documented in `.env.example`.
-3.  **Backend stack:**
-
-    ```bash
-    ./dev-env.sh build
-    ./dev-env.sh up
-    ```
-
-    Bot HTTP API defaults to `http://127.0.0.1:3001` (`BOT_API_PORT`). Postgres is published on `127.0.0.1:5432` in dev.
-
-4.  **Web portal (separate terminal, on the host):**
-
-    ```bash
-    yarn web:install
-    yarn dev:web
-    ```
-
-    Dashboard defaults to `http://localhost:3000` (`BETTER_AUTH_URL` in compose points here).
-
-5.  **Smoke-check before deploy:** Confirm containers are healthy (`docker compose … ps`, bot `GET /health` on `BOT_API_PORT`), then load the dashboard and sign in. Fix the Docker stack first; only then validate production images.
-
-`lavaNodesConfig.js` is optional in Docker dev—the entrypoint can generate it from compose env vars.
-
-## YouTube “sign in” errors
-
-Companion and yt-cipher do **not** silence Lavalink youtube-plugin login messages during YouTube search. Playback is a separate companion HTTP path. Follow [docs/youtube-playback-diagnosis.md](docs/youtube-playback-diagnosis.md) before enabling YouTube OAuth or adding a dashboard “link YouTube” flow.
-
-## Usage
-
-- **Run backend locally (Docker):**
-
-    ```bash
-    ./dev-env.sh up
-    ```
-
-- **Run dashboard locally (host):** `yarn dev:web` (with the Docker stack already up).
-
-- **Deploy Slash Commands (run locally; run `yarn build` first so `dist/deploy/` exists):**
-    - Globally: `yarn deployGlobal`
-    - To a specific guild: `yarn deployGuild` (requires `GUILD_ID` environment variable)
-- **Remove Slash Commands:**
-    - Globally: `yarn destroyGlobal`
-    - From a specific guild: `yarn destroyGuild` (requires `GUILD_ID` environment variable)
-
-## Project Structure
+For local Dashboard sign-in, register exactly:
 
 ```text
-src/
-├── commands/      # Slash command definitions
-├── deploy/        # Scripts for deploying/destroying commands
-├── events/        # Event handlers (e.g., messageCreate, interactionCreate)
-├── lib/           # Core libraries or bot-specific modules
-├── util/          # Utility functions
-├── types/         # Shared TypeScript types
-└── index.ts       # Main application entry (compiled to dist/)
+http://localhost:3000/api/auth/oauth2/callback/fluxer
 ```
 
-## Key Dependencies
+Set `BETTER_AUTH_URL=http://localhost:3000`. Generate a **new** `BETTER_AUTH_SECRET` and **new database credentials** for this deployment. Both applications must use the same Fluxer database and session secret. The cookie prefix is `dimby-fluxer`; provider identities are read from the Fluxer OAuth account, never inferred from an old Discord account or an email match. OAuth refresh rotation is serialized with a PostgreSQL row lock across both processes.
 
-- [discord.js](https://discord.js.org/): The primary library for interacting with the Discord API.
-- [lavalink-client](https://github.com/freyacodes/lavalink-client): Client for interacting with a Lavalink server.
-- [nodemailer](https://nodemailer.com/): Optional; only required if you re-enable the disabled `/suggest` command.
+Generate secrets with `node -e 'console.log(require("crypto").randomBytes(48).toString("hex"))'`. The companion key is a special case: it must contain **exactly 16 alphanumeric characters**, for example a fresh `randomBytes(8).toString("hex")` value. Replace every example credential before running services.
 
-## License
+## Host execution
 
-This project is licensed under the MIT License; see the [LICENSE](LICENSE) file.
+```bash
+yarn install
+yarn web:install
+# Build source-search image and start only the isolated dependencies:
+docker compose --env-file .env.fluxer -f docker-compose.yml -f docker-compose.dev.yml up --build -d fluxer-db fluxer-metadata fluxer-companion fluxer-cipher fluxer-spotify-tokener
+yarn build:bot
+yarn start
+```
+
+In another terminal, start the Dashboard (its dev script loads the same `.env.fluxer`):
+
+```bash
+yarn dev:web
+```
+
+The example host ports are Dashboard `3000`, Bot API/WebSocket `3010`, PostgreSQL `5434`, metadata `2334`, and companion `8283`. The optional ignored `.env.fluxer.local` overlays generated host-only settings; both host applications load it consistently. The root Bot entrypoint loads the dedicated Fluxer files itself; Next can instead receive matching server environment variables or use its own local file based on `src/web/.env.example`.
+
+The Bot applies Prisma migrations on startup. PostgreSQL is required; there is no fallback to a pre-existing default development database. Metadata readiness is checked before Bot startup. Companion failures are surfaced when a source is prepared. Start only one Bot process per application token.
+
+For container Bot development, `./dev-env.sh up` or the `yarn docker:dev:*` scripts use the dedicated environment and development override. Named volumes are retained by `down`. Use the explicit volume-removal command only when intentionally discarding this Fluxer development data.
+
+## Containers
+
+```bash
+docker compose --env-file .env.fluxer -f docker-compose.yml -f docker-compose.dashboard.yml up --build -d
+```
+
+The project is `dimbybot-fluxer`, with `fluxer-*` services, separate named volumes, and local image defaults `dimbybot-fluxer-bot`, `dimbybot-fluxer-dashboard`, and `dimbybot-fluxer-metadata`. No fixed container names or Discord image tags are shared. The Bot image uses Debian/glibc because LiveKit's native Linux binaries do not support musl. FFmpeg runs with pipe-only input; yt-dlp and the retired Discord voice stack are not required.
+
+Container entrypoints construct an encoded URL for the separate `fluxer-db` service from `POSTGRES_*`. `FLUXER_DOCKER_DATABASE_URL` is an optional explicit override for containers; the host's `DATABASE_URL` is not accidentally forwarded as `localhost` inside Docker.
+
+For production, use HTTPS and route **`/ws` on the Dashboard's cookie host** to the Bot, with `WEBSOCKET_CLIENT_URL=wss://your-dashboard-host/ws`. Session cookies authenticate upgrades; URL connect tokens are retired. Keep the Bot API behind the private network/reverse proxy. `/health` is process liveness; `/ready` reports Gateway readiness. The Dashboard status page probes its database and the Bot HTTP endpoint independently.
+
+CI validates both applications. Automatic image publication and remote deployment are disabled until this independent project is explicitly configured. No remote repository or production environment is provisioned by the conversion.
+
+## Music commands
+
+The default prefix is `!`; `BOT_COMMAND_PREFIX` changes it.
+
+```text
+!help
+!play song title, artist, or URL
+!pause / !resume / !skip / !stop / !leave
+!queue / !remove 2 / !move 3 1 / !clear
+!seek 90 / !seek 1:30
+!volume 50 / !loop off|track|queue / !shuffle / !nowplaying
+!playlist create "My Music"
+!playlist list / !playlist view "My Music"
+!playlist add "My Music" song title or URL
+!playlist rename "My Music" "New Name"
+!playlist move "New Name" 3 1
+!playlist remove "New Name" 2
+!playlist play "New Name"
+!playlist delete "New Name"
+!control-channel TEXT_CHANNEL_ID
+!control-channel off
+```
+
+Queue/playlist positions start at one. Playlist names containing spaces should be quoted. Stop clears music while retaining the connection; leave also disconnects. Queue clear preserves the current track. Configure a control channel with Manage Guild permission; ordinary text there queues a query, while unknown prefix commands show guidance. Bot messages, webhooks and DMs are ignored. Replies disable mentions.
+
+A controller must share the Bot's voice channel. To start a new session, join a voice channel first; multiple simultaneous voice connections require an explicit target through the API. Give the Bot View Channel, Connect and Speak permissions in that voice channel, and View Channel, Send Messages and Embed Links in its control channel. Permission loss or an empty channel suspends playback and retains a paused queue.
+
+## Validation and troubleshooting
+
+```bash
+yarn typecheck
+yarn lint
+yarn prettier --check .
+yarn test
+yarn build:bot
+yarn build:web
+```
+
+The root compiler excludes `src/web/`; building the Bot does not emit the Dashboard. Unit tests use Node's test runner and tsx under `tests/`; Dashboard tests are under `tests/web/`.
+
+See [native music smoke tests](docs/fluxer-music-smoke.md), [the architecture decision](docs/adr/0010-fluxer-native-music.md), and [the glossary](GLOSSARY.md). A successful unit suite does not establish audible playback: the real tone/pause/resume/leave probe must be confirmed by a listener. Sign-in errors should be diagnosed without printing cookies, grants, authorization codes or OAuth tokens. A Dashboard “Bot API unreachable” notice means its configured Bot HTTP listener is unavailable, even if OAuth succeeded.
+
+Search and catalog availability also depend on upstream YouTube/Spotify behavior and metadata/companion services. A failed source is skipped once; unsupported or unreadable persisted session versions are left intact. Encrypted voice configurations are implemented and unit-covered; verify an encrypted channel separately if your instance requires it.

@@ -2,6 +2,7 @@ import type { AudioSource, LocalAudioTrack, RoomOptions } from "@livekit/rtc-nod
 import type { VoiceGrant } from "../fluxer/voice.js"
 import { decodePcm } from "./decoder.js"
 import type { PreparedSource } from "./types.js"
+import { MusicTransportDisconnectedError } from "./types.js"
 
 export interface AudioSink {
     readonly queuedDuration: number
@@ -136,6 +137,7 @@ export class LivekitTransport {
     private volume = 100
     private offset = 0
     private submittedMs = 0
+    private connectionLost = false
     constructor(dependencies: TransportDependencies = {}) {
         this.dependencies = { openRoom: openLivekitRoom, decode: decodePcm, ...dependencies }
     }
@@ -167,8 +169,10 @@ export class LivekitTransport {
                 combined.throwIfAborted()
             }
             this.session = session
+            this.connectionLost = false
             this.removeDisconnect = session.onDisconnect(() => {
-                this.controller?.abort()
+                this.connectionLost = true
+                this.controller?.abort(new MusicTransportDisconnectedError())
                 this.wake?.()
             })
         } catch {
@@ -180,7 +184,13 @@ export class LivekitTransport {
     }
 
     play(source: PreparedSource, offsetMs: number, signal: AbortSignal): Promise<void> {
-        if (!this.session) return Promise.reject(new Error("Audio transport is not connected"))
+        if (!this.session || this.connectionLost)
+            return source
+                .close()
+                .catch(() => {})
+                .then(() => {
+                    throw new MusicTransportDisconnectedError()
+                })
         if (this.playing) return Promise.reject(new Error("Audio is already playing"))
         if (!Number.isFinite(offsetMs) || offsetMs < 0 || (offsetMs > 0 && !source.seekable))
             return Promise.reject(new Error("This source cannot seek to that position"))

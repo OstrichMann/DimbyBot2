@@ -1,11 +1,11 @@
 {
-    "name": "dimbybot2-web",
+    "name": "dimbybot-fluxer-dashboard",
     "private": true,
     "type": "module",
     "scripts": {
         "postinstall": "node ../../scripts/postinstall-prisma.mjs",
         "predev": "node scripts/predev.js",
-        "dev": "next dev --webpack --hostname 0.0.0.0",
+        "dev": "node --env-file-if-exists=../../.env.fluxer --env-file-if-exists=../../.env.fluxer.local node_modules/next/dist/bin/next dev --webpack --hostname 0.0.0.0",
         "typecheck": "tsc --noEmit",
         "test": "node ../../scripts/run-web-tests.mjs",
         "build": "next build --webpack",
@@ -18,7 +18,6 @@
         "better-auth": "1.6.22",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
-        "lavalink-client": "^2.9.9",
         "lucide-react": "^1.8.0",
         "next": "^16.3.8",
         "next-themes": "^0.4.6",

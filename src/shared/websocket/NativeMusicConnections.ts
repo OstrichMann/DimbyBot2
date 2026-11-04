@@ -5,6 +5,7 @@ import type { MusicSnapshot } from "../music-contract.js"
 
 interface MusicSocket {
     readyState: number
+    readonly bufferedAmount?: number
     send(data: string): void
     close(code?: number, reason?: string): void
     on(event: string, listener: (...args: unknown[]) => void): unknown
@@ -42,14 +43,19 @@ export class NativeMusicConnections {
         }, 15000)
         this.interval.unref?.()
     }
-    async add(socket: MusicSocket, headers: Headers): Promise<void> {
+    async add(
+        socket: MusicSocket,
+        headers: Headers,
+        authenticatedActor?: AuthenticatedActor
+    ): Promise<void> {
         if (this.stopped || this.sockets.size >= 1000) {
             socket.close(1013, "Live updates unavailable")
             return
         }
         let actor: AuthenticatedActor
         try {
-            actor = await this.dependencies.authenticate(headers)
+            // The upgrade server passes its verified actor so listeners attach before the client can send.
+            actor = authenticatedActor ?? (await this.dependencies.authenticate(headers))
         } catch {
             socket.close(1008, "Sign in with Fluxer")
             return
@@ -84,6 +90,10 @@ export class NativeMusicConnections {
         socket.on("error", () => socket.close(1011, "Live update failed"))
     }
     private send(state: SocketState, value: unknown): void {
+        if ((state.socket.bufferedAmount ?? 0) > 1024 * 1024) {
+            state.socket.close(1013, "Live update client is too slow")
+            return
+        }
         if (state.socket.readyState === 1 && this.sockets.has(state))
             state.socket.send(JSON.stringify(value))
     }
@@ -201,8 +211,17 @@ export class NativeMusicConnections {
                 state.subscriptions.get(guildId) === generation
             )
                 this.deliver(state, guildId, viewer)
-        } catch {
+        } catch (error) {
             if (state.subscriptions.get(guildId) !== generation) return
+            if (error && typeof error === "object" && "status" in error && error.status === 503) {
+                // Withhold data until authority is available; the periodic check retries safely.
+                this.send(state, {
+                    type: "error",
+                    code: "PLAYER_UNAVAILABLE",
+                    message: "Player updates temporarily unavailable",
+                })
+                return
+            }
             state.subscriptions.delete(guildId)
             this.send(state, {
                 type: "error",

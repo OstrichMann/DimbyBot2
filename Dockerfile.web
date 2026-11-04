@@ -3,14 +3,7 @@ FROM node:24-alpine3.22 AS builder
 
 WORKDIR /app
 
-# Root lockfile installs bot deps (e.g. `sodium` for @discordjs/voice); that package builds libsodium and needs a toolchain.
-RUN apk add --no-cache \
-    build-base \
-    autoconf \
-    automake \
-    libtool \
-    python3
-
+# Shared auth/DTO modules are traced into Next standalone; no Bot voice runtime is imported.
 COPY package.json yarn.lock ./
 COPY scripts/postinstall-prisma.mjs scripts/prepare-husky.mjs scripts/
 RUN yarn install --frozen-lockfile

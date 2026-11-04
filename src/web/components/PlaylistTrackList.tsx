@@ -12,7 +12,7 @@ import {
 } from "@/server/playlists.actions"
 import { formatDurationMs } from "@/lib/format-duration"
 import { AddTrackToPlaylistForm } from "@/components/AddTrackToPlaylistForm"
-import { PlaylistDiscordHelp } from "@/components/PlaylistDiscordHelp"
+import { PlaylistFluxerHelp } from "@/components/PlaylistFluxerHelp"
 import { PlaylistTrackRow } from "@/components/PlaylistTrackRow"
 import { Button } from "@/components/ui/button"
 import type { PlaylistTrackData } from "@/types/web"
@@ -204,7 +204,7 @@ export function PlaylistTrackList({
                         ) : null}
                     </div>
                 </div>
-                <PlaylistDiscordHelp />
+                <PlaylistFluxerHelp />
             </section>
 
             <section className="rounded border bg-card p-4 text-card-foreground">
@@ -226,7 +226,7 @@ export function PlaylistTrackList({
                 {orderedTracks.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                         No tracks yet. Add songs above or use{" "}
-                        <code className="rounded bg-muted px-1">/playlist add</code> in Discord.
+                        <code className="rounded bg-muted px-1">!playlist add</code> in Fluxer.
                     </p>
                 ) : (
                     <ul className="space-y-2">

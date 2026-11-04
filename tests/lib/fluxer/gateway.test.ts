@@ -151,3 +151,23 @@ test("dispatches replayed events before RESUMED and keeps their accepted sequenc
     assert.deepEqual(next.sent.at(-1), { op: 1, d: 2 })
     await h.gateway.stop()
 })
+
+test("rejected command acceptance preserves resume sequence and permits replay instead of deduplicating a lost command", async () => {
+    let attempts = 0
+    const h = harness(async (event: { t?: string }) => {
+        if (event.t === "MESSAGE_CREATE" && ++attempts === 1) throw new Error("queue full")
+    })
+    const first = await ready(h)
+    first.packet({ op: 0, s: 2, t: "MESSAGE_CREATE", d: { id: "88" } })
+    await flushFluxer()
+    await h.clock.advance(1000)
+    const next = h.sockets[1]
+    assert.ok(next, "unaccepted dispatch reconnects for replay")
+    next.packet({ op: 10, d: { heartbeat_interval: 1000 } })
+    assert.equal((next.sent[0].d as { seq: number }).seq, 1)
+    next.packet({ op: 0, s: 2, t: "MESSAGE_CREATE", d: { id: "88" } })
+    next.packet({ op: 0, s: 3, t: "RESUMED", d: {} })
+    await flushFluxer()
+    assert.equal(attempts, 2)
+    await h.gateway.stop()
+})

@@ -20,3 +20,11 @@ export interface MusicTransport {
     stop(): Promise<void>
     disconnect(): Promise<void>
 }
+
+/** Transport loss is recoverable by resuming; it must not be treated as an invalid audio source. */
+export class MusicTransportDisconnectedError extends Error {
+    constructor() {
+        super("Voice transport disconnected")
+        this.name = "MusicTransportDisconnectedError"
+    }
+}

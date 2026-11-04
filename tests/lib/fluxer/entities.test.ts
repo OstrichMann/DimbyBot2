@@ -129,3 +129,18 @@ test("malformed permission masks, overwrite types and overflowing IDs cannot gra
         false
     )
 })
+
+test("message and presence traffic leave the authorization revision unchanged", () => {
+    const entities = new FluxerEntities()
+    entities.apply({ t: "GUILD_CREATE", d: { id: "1" } })
+    const revision = entities.getGuild("1")!.revision
+    for (const t of [
+        "MESSAGE_CREATE",
+        "MESSAGE_UPDATE",
+        "TYPING_START",
+        "PRESENCE_UPDATE",
+        "VOICE_SERVER_UPDATE",
+    ])
+        entities.apply({ t, d: { guild_id: "1" } })
+    assert.equal(entities.getGuild("1")!.revision, revision)
+})
