@@ -102,3 +102,24 @@ test("rejects unsupported or malformed voice grants without revealing credential
         assert.equal(h.voice.channelId("1"), null)
     }
 })
+
+test("an explicit null room key is an unencrypted grant, matching Fluxer's client payload", async () => {
+    const h = harness()
+    const joined = h.voice.join("1", "2", new AbortController().signal)
+    h.voice.handleDispatch({ t: "VOICE_SERVER_UPDATE", d: { ...grant, e2ee_key: null } })
+    assert.equal((await joined).e2eeKey, undefined)
+    await h.voice.stop()
+})
+
+test("normalizes HTTP(S) LiveKit endpoints from the instance to WS(S) without changing transport security", async () => {
+    for (const [endpoint, expected] of [
+        ["https://voice.example:8443/room?region=1", "wss://voice.example:8443/room?region=1"],
+        ["http://voice.example:7880", "ws://voice.example:7880/"],
+    ]) {
+        const h = harness()
+        const joined = h.voice.join("1", "2", new AbortController().signal)
+        h.voice.handleDispatch({ t: "VOICE_SERVER_UPDATE", d: { ...grant, endpoint } })
+        assert.equal((await joined).endpoint, expected)
+        await h.voice.stop()
+    }
+})

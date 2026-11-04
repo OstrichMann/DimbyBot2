@@ -157,9 +157,17 @@ export class FluxerVoice {
             typeof data.connection_id === "string" &&
             !!data.connection_id &&
             data.p2p !== true &&
-            (data.e2ee_key === undefined || typeof data.e2ee_key === "string")
+            (data.e2ee_key === undefined ||
+                data.e2ee_key === null ||
+                typeof data.e2ee_key === "string")
+        let endpoint = data.endpoint as string
         try {
             const url = new URL(String(data.endpoint))
+            // Some Fluxer instances publish LiveKit's HTTPS base rather than its WebSocket URL.
+            if (url.protocol === "https:" || url.protocol === "http:") {
+                url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+                endpoint = url.href
+            }
             valid =
                 valid &&
                 ["ws:", "wss:"].includes(url.protocol) &&
@@ -188,7 +196,7 @@ export class FluxerVoice {
             return
         }
         const grant: VoiceGrant = {
-            endpoint: data.endpoint as string,
+            endpoint,
             token: data.token as string,
             connectionId: data.connection_id as string,
             ...(typeof data.e2ee_key === "string" ? { e2eeKey: data.e2ee_key } : {}),

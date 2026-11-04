@@ -1,5 +1,5 @@
 # Node 24 — keep in sync with production Dockerfiles and package.json engines.
-FROM node:24-alpine3.22
+FROM node:24-bookworm-slim
 
 WORKDIR /app
 
@@ -7,23 +7,29 @@ WORKDIR /app
 # Also install build tools needed for native Node.js modules.
 # Install yt-dlp into a shared venv so non-root users can execute it.
 COPY docker/ytdlp-requirements.txt /tmp/ytdlp-requirements.txt
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
         python3 \
-        py3-pip \
+        python3-pip \
+        python3-venv \
         ffmpeg \
-        build-base \
+        build-essential \
         autoconf \
         automake \
         libtool \
         g++ \
-        su-exec \
+        gosu \
         wget \
+    && ln -s /usr/sbin/gosu /usr/local/bin/su-exec \
+    && rm -rf /var/lib/apt/lists/* \
     && python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir -r /tmp/ytdlp-requirements.txt \
     && YTDLP_BIN="/opt/venv/bin/yt-dlp" \
     && test -n "$YTDLP_BIN" && test -x "$YTDLP_BIN" \
     && ln -sf "$YTDLP_BIN" /usr/local/bin/yt-dlp \
     && yt-dlp --version
+
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
 
 # Copy package files and install ALL dependencies (including dev)
 COPY package.json yarn.lock ./
@@ -43,7 +49,7 @@ COPY --chmod=755 entrypoint.dev.sh /usr/local/bin/dimbybot-dev-entrypoint.sh
 
 # Do not `chown -R` all of `/app` (node_modules has 100k+ files and rebuilds take minutes).
 # `entrypoint.dev.sh` fixes ownership of writable paths at container start.
-RUN addgroup -S devuser && adduser -S devuser -G devuser \
+RUN groupadd --system devuser && useradd --system --gid devuser --create-home devuser \
     && mkdir -p /app/dist
 
 # Runtime environment (see Dockerfile in repo root for the full list):

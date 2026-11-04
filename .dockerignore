@@ -1,6 +1,7 @@
 # Git specific
 .git
 .gitignore
+.superpowers/
 
 # Node specific
 node_modules

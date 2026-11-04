@@ -1,19 +1,22 @@
-# Pin Node 24 + Alpine; apk packages are unpinned so repo updates within the Alpine minor do not break builds.
-FROM node:24-alpine3.22 AS builder
+# LiveKit's native Linux binaries require glibc; Alpine/musl is unsupported.
+FROM node:24-bookworm-slim AS builder
 
 WORKDIR /app
 
 COPY docker/ytdlp-requirements.txt /tmp/ytdlp-requirements.txt
 # Native build tools (e.g. sodium) + ffmpeg for any runtime checks during build.
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     python3 \
-    py3-pip \
+    python3-pip \
+    python3-venv \
     ffmpeg \
-    build-base \
+    build-essential \
     autoconf \
     automake \
     libtool \
     g++ \
+    && rm -rf /var/lib/apt/lists/* \
     && python3 -m venv /opt/venv \
     && . /opt/venv/bin/activate \
     && pip3 install --no-cache-dir -r /tmp/ytdlp-requirements.txt \
@@ -29,16 +32,21 @@ RUN yarn db:generate && yarn build:bot \
     && test -f node_modules/.prisma/client/default.js
 
 # --- runtime image ---
-FROM node:24-alpine3.22
+FROM node:24-bookworm-slim
 
 WORKDIR /app
 
 # Runtime: ffmpeg + Python for the copied venv; yt-dlp venv is built in the builder stage.
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     python3 \
     ffmpeg \
-    su-exec \
-    wget
+    gosu \
+    wget \
+    && ln -s /usr/sbin/gosu /usr/local/bin/su-exec \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
 
 COPY --from=builder /opt/venv /opt/venv
 RUN ln -sf /opt/venv/bin/yt-dlp /usr/bin/yt-dlp
@@ -61,11 +69,8 @@ COPY --from=builder /app/dist/util/prismaDatasourceUrl.js ./src/util/prismaDatas
 
 COPY entrypoint.sh entrypoint.sh
 COPY healthcheck.sh healthcheck.sh
-# dos2unix only for CRLF normalization; remove before layer commit so it is not a runtime dependency.
-RUN apk add --no-cache dos2unix \
-    && dos2unix entrypoint.sh healthcheck.sh \
+RUN sed -i 's/\r$//' entrypoint.sh healthcheck.sh \
     && chmod +x entrypoint.sh healthcheck.sh \
-    && apk del dos2unix \
     && mkdir -p /app/storage \
     && chown -R node:node /app/dist /app/prisma /app/storage \
     && chown node:node /app \
