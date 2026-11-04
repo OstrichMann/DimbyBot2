@@ -295,7 +295,12 @@ export class FluxerGateway {
         }
     }
 
+    /** Runs from timers: a socket already closing must reconnect here, never throw uncaught. */
     private heartbeat(): void {
+        if (this.socket?.readyState !== 1) {
+            this.reconnect()
+            return
+        }
         this.send(1, this.sequence)
         this.ackPending = true
     }

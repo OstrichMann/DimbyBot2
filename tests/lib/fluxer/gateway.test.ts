@@ -171,3 +171,17 @@ test("rejected command acceptance preserves resume sequence and permits replay i
     assert.equal(attempts, 2)
     await h.gateway.stop()
 })
+
+test("a heartbeat due while the socket is closing reconnects instead of throwing from the timer", async () => {
+    const h = harness()
+    const socket = await ready(h)
+    socket.readyState = 2
+    await h.clock.advance(1000)
+    assert.equal(
+        socket.sent.some((packet) => packet.op === 1),
+        false
+    )
+    await h.clock.advance(2000)
+    assert.equal(h.sockets.length, 2)
+    await h.gateway.stop()
+})
