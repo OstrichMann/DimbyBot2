@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client"
 import { getPrismaClient } from "../lib/database.js"
 import type { PlayerSessionData, PlayerSessionSnapshotV1 } from "../types/index.js"
 import { parsePlayerSessionSnapshot } from "../util/playerSessionSnapshotParse.js"
+import type { MusicSessionSnapshotV2 } from "../shared/music-contract.js"
 
 function toPlayerSessionData(row: {
     guildId: string
@@ -21,12 +22,11 @@ function toPlayerSessionData(row: {
     }
 }
 
-/** Upserts a player session snapshot for crash/restart recovery. */
-export async function upsertPlayerSession(
+async function upsertSessionSnapshot(
     guildId: string,
     voiceChannelId: string,
     textChannelId: string | null,
-    snapshot: PlayerSessionSnapshotV1
+    snapshot: PlayerSessionSnapshotV1 | MusicSessionSnapshotV2
 ): Promise<void> {
     const prisma = getPrismaClient()
     await prisma.playerSession.upsert({
@@ -43,6 +43,31 @@ export async function upsertPlayerSession(
             snapshot: snapshot as unknown as Prisma.InputJsonValue,
         },
     })
+}
+
+/** Upserts the retained Discord V1 format without widening legacy callers' snapshot types. */
+export async function upsertPlayerSession(
+    guildId: string,
+    voiceChannelId: string,
+    textChannelId: string | null,
+    snapshot: PlayerSessionSnapshotV1
+): Promise<void> {
+    await upsertSessionSnapshot(guildId, voiceChannelId, textChannelId, snapshot)
+}
+
+/** Upserts the native Fluxer V2 format in the same versioned JSON column. */
+export async function upsertMusicPlayerSession(
+    guildId: string,
+    voiceChannelId: string,
+    textChannelId: string | null,
+    snapshot: MusicSessionSnapshotV2
+): Promise<void> {
+    await upsertSessionSnapshot(guildId, voiceChannelId, textChannelId, snapshot)
+}
+
+/** Native persistence reads raw versions so unsupported rows can remain untouched. */
+export async function listRawPlayerSessions() {
+    return getPrismaClient().playerSession.findMany()
 }
 
 /** Removes a persisted player session (intentional destroy or stale cleanup). */
