@@ -93,13 +93,17 @@ export function musicServiceHarness() {
         closes = 0
     let connectGate: ReturnType<typeof deferred<void>> | undefined
     let prepareGate: ReturnType<typeof deferred<void>> | undefined
+    let joinGate: ReturnType<typeof deferred<void>> | undefined
+    let joins = 0
+    const authorizations: { action: string; channelId?: string }[] = []
     const loads = new Map<
         string,
         ReturnType<typeof deferred<{ kind: "search"; tracks: MusicTrack[] }>>
     >()
     const service = new MusicService({
         access: {
-            authorizeMusic: async (actor, _action, channelId) => {
+            authorizeMusic: async (actor, action, channelId) => {
+                authorizations.push({ action, channelId })
                 if (denied) throw new MusicAccessError(403, "denied")
                 return { ...actor, voiceChannelId: channelId ?? voice.get(actor.guildId) ?? "2" }
             },
@@ -125,6 +129,10 @@ export function musicServiceHarness() {
         },
         voice: {
             join: async (guildId, channelId, signal) => {
+                signal.throwIfAborted()
+                joins++
+                if (voice.has(guildId)) throw new Error("Voice session is already connected")
+                if (joinGate) await joinGate.promise
                 signal.throwIfAborted()
                 voice.set(guildId, channelId)
                 return { endpoint: "wss://voice.example", token: "test", connectionId: guildId }
@@ -154,12 +162,17 @@ export function musicServiceHarness() {
         transports,
         voice,
         loads,
+        authorizations,
         setPrepareGate: (gate?: ReturnType<typeof deferred<void>>) => {
             prepareGate = gate
         },
         setConnectGate: (gate?: ReturnType<typeof deferred<void>>) => {
             connectGate = gate
         },
+        setJoinGate: (gate?: ReturnType<typeof deferred<void>>) => {
+            joinGate = gate
+        },
+        joins: () => joins,
         deny: (value = true) => {
             denied = value
         },

@@ -367,3 +367,152 @@ test("Gateway-unavailable leave and transport cleanup failures still publish a d
     assert.equal(state.current?.title, "A")
     await h.service.shutdown()
 })
+
+const restoredRow = {
+    guildId: "1",
+    voiceChannelId: "2",
+    textChannelId: "3",
+    snapshot: {
+        version: 2 as const,
+        current: musicTrack("A"),
+        queue: [musicTrack("B")],
+        positionMs: 4000,
+        volume: 100,
+        repeatMode: "off" as const,
+        paused: true,
+    },
+}
+
+test("controls on a restored session require voice-level access to the stored channel", async () => {
+    const h = musicServiceHarness()
+    h.service.restore(restoredRow)
+    for (const action of [
+        { type: "skip" },
+        { type: "stop" },
+        { type: "clear" },
+        { type: "volume", percent: 50 },
+    ] as MusicAction[]) {
+        h.authorizations.length = 0
+        h.service.restore(restoredRow)
+        await h.service.execute(actor, action)
+        assert.deepEqual(h.authorizations, [{ action: "queue", channelId: "2" }], action.type)
+    }
+    await h.service.shutdown()
+})
+
+test("skip on a restored session stays paused and does not open voice", async () => {
+    const h = musicServiceHarness()
+    h.service.restore(restoredRow)
+    await h.service.execute(actor, { type: "skip" })
+    await settleMusic()
+    const snapshot = h.service.snapshot("1")
+    assert.equal(snapshot.current?.title, "B")
+    assert.equal(snapshot.status, "paused")
+    assert.equal(snapshot.connected, false)
+    assert.equal(h.voice.has("1"), false)
+    assert.equal(h.transports.size, 0)
+    await h.service.shutdown()
+})
+
+test("appending to the queue succeeds even when playback published a newer revision meanwhile", async () => {
+    const h = musicServiceHarness()
+    const seen = h.service.snapshot("1").revision
+    await h.service.execute(actor, { type: "play", query: "A" }, { expectedRevision: seen })
+    await settleMusic()
+    await h.service.execute(actor, { type: "play", query: "B" }, { expectedRevision: seen })
+    await h.service.execute(
+        actor,
+        { type: "enqueue", tracks: [musicTrack("C")] },
+        { expectedRevision: seen }
+    )
+    assert.deepEqual(
+        h.service.snapshot("1").queue.map((track) => track.title),
+        ["B", "C"]
+    )
+    await h.service.shutdown()
+})
+
+test("position reports the seek target while the new source is still preparing", async () => {
+    const h = musicServiceHarness()
+    await h.service.execute(actor, { type: "play", query: "A" })
+    await settleMusic()
+    const prepare = deferred<void>()
+    h.setPrepareGate(prepare)
+    const sought = await h.service.execute(actor, { type: "seek", positionMs: 60000 })
+    assert.equal(sought.positionMs, 60000)
+    await h.service.execute(actor, { type: "pause" })
+    assert.equal(h.service.snapshot("1").positionMs, 60000)
+    h.setPrepareGate()
+    prepare.resolve()
+    await settleMusic()
+    assert.equal(h.transports.get("1")!.position, 60000)
+    await h.service.shutdown()
+})
+
+test("a second listener's play while the Bot is joining stays bound to the joining channel", async () => {
+    const h = musicServiceHarness(),
+        join = deferred<void>()
+    h.setJoinGate(join)
+    await h.service.execute(actor, { type: "play", query: "A", voiceChannelId: "20" })
+    await settleMusic()
+    h.authorizations.length = 0
+    await h.service.execute(
+        { ...actor, userId: "10" },
+        { type: "play", query: "B", voiceChannelId: "30" }
+    )
+    assert.deepEqual(h.authorizations, [{ action: "queue", channelId: "20" }])
+    assert.equal(h.service.snapshot("1").voiceChannelId, "20")
+    h.setJoinGate()
+    join.resolve()
+    await settleMusic()
+    assert.equal(h.voice.get("1"), "20")
+    await h.service.shutdown()
+})
+
+test("a play authorized for another channel cannot retarget a session that started meanwhile", async () => {
+    const h = musicServiceHarness(),
+        slow = deferred<{ kind: "search"; tracks: ReturnType<typeof musicTrack>[] }>()
+    h.loads.set("A", slow)
+    const first = h.service.execute(actor, { type: "play", query: "A", voiceChannelId: "20" })
+    const second = h.service.execute(
+        { ...actor, userId: "10" },
+        { type: "play", query: "B", voiceChannelId: "30" }
+    )
+    slow.resolve({ kind: "search", tracks: [musicTrack("A")] })
+    await first
+    await assert.rejects(second, (e) => e instanceof MusicError && e.status === 409)
+    assert.equal(h.service.snapshot("1").voiceChannelId, "20")
+    assert.equal(h.service.snapshot("1").queue.length, 0)
+    await h.service.shutdown()
+})
+
+test("a play accepted after a stop is not wiped out by that stop", async () => {
+    const h = musicServiceHarness()
+    await h.service.execute(actor, { type: "play", query: "A" })
+    await settleMusic()
+    const stopped = h.service.execute(actor, { type: "stop" })
+    const played = h.service.execute(actor, { type: "play", query: "B" })
+    await Promise.all([stopped, played])
+    await settleMusic()
+    assert.equal(h.service.snapshot("1").current?.title, "B")
+    await h.service.shutdown()
+})
+
+test("skip while voice is still connecting hands the connection to the next track", async () => {
+    const h = musicServiceHarness(),
+        connect = deferred<void>()
+    h.setConnectGate(connect)
+    await h.service.execute(actor, { type: "play", query: "A" })
+    await h.service.execute(actor, { type: "play", query: "B" })
+    await settleMusic()
+    await h.service.execute(actor, { type: "skip" })
+    connect.resolve()
+    await settleMusic()
+    const snapshot = h.service.snapshot("1")
+    assert.equal(snapshot.current?.title, "B")
+    assert.equal(snapshot.status, "playing")
+    assert.equal(snapshot.connected, true)
+    assert.equal(snapshot.lastError, null)
+    assert.equal(h.joins(), 1)
+    await h.service.shutdown()
+})

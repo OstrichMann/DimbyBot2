@@ -47,6 +47,12 @@ interface GuildMusic {
     transport?: MusicTransport
     runner?: Promise<void>
     trackController?: AbortController
+    /** True once the current source was handed to the transport, whose position is then live. */
+    handedOff: boolean
+    /** Shared voice join + transport connect, so a successor track reuses an in-flight connect. */
+    connecting?: Promise<void>
+    /** Settles when every stop/leave accepted so far has finished; later requests wait on it. */
+    barrier: Promise<void>
     seekable: boolean
     cancelEmpty?: () => void
     requests: number
@@ -118,7 +124,9 @@ export class MusicService {
         const state = this.states.get(guildId),
             value = state?.value ?? empty(guildId)
         const positionMs =
-            state?.runner && state.transport ? state.transport.positionMs() : value.positionMs
+            state?.runner && state.handedOff && state.transport
+                ? state.transport.positionMs()
+                : value.positionMs
         return {
             ...value,
             current: value.current ? { ...value.current } : null,
@@ -164,25 +172,27 @@ export class MusicService {
                 throw new MusicError(409, "Music changed; refresh and try again")
         }
         state.requests++
-        const signal = state.generation.signal
-        const queued = action.type === "play" || action.type === "enqueue"
-        const previous = state.searchTail
-        let release = () => {}
-        if (queued)
-            state.searchTail = new Promise<void>((resolve) => {
-                release = resolve
+        // Requests accepted after a stop/leave wait for it, so the stop cannot cancel them.
+        const barrier = state.barrier
+        let stopped = () => {}
+        if (action.type === "stop" || action.type === "leave") {
+            const own = new Promise<void>((resolve) => {
+                stopped = resolve
             })
+            state.barrier = barrier.then(() => own)
+        }
+        const queued = action.type === "play" || action.type === "enqueue"
+        let release = () => {}
         try {
-            const needsJoin = queued || (action.type === "resume" && !state.value.connected)
-            const access = await this.dependencies.access.authorizeMusic(
-                actor,
-                needsJoin
-                    ? "queue"
-                    : this.dependencies.voice.channelId(actor.guildId)
-                      ? "control"
-                      : "view",
-                queued ? action.voiceChannelId : undefined
-            )
+            await barrier
+            const signal = state.generation.signal
+            const previous = state.searchTail
+            if (queued)
+                state.searchTail = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+            const [level, channelId] = this.accessFor(state, action)
+            const access = await this.dependencies.access.authorizeMusic(actor, level, channelId)
             signal.throwIfAborted()
             if (action.type === "stop" || action.type === "leave") {
                 await this.mutate(state, async () => {
@@ -223,9 +233,9 @@ export class MusicService {
                 if (normalized.some((track) => !track))
                     throw new MusicError(400, "Invalid queue track")
                 await abortable(previous, signal)
+                // Appends do not depend on queue order, so a stale revision must not reject them.
                 await this.mutate(state, () => {
                     signal.throwIfAborted()
-                    checkRevision()
                     if (
                         state.value.queue.length +
                             (state.value.current ? 1 : 0) +
@@ -233,6 +243,9 @@ export class MusicService {
                         1000
                     )
                         throw new MusicError(400, "Queue limit is 1000 tracks")
+                    const active = state.runner || state.value.connected
+                    if (active && access.voiceChannelId !== state.value.voiceChannelId)
+                        throw new MusicError(409, "Music moved to another voice channel; try again")
                     state.value.voiceChannelId = access.voiceChannelId
                     state.value.textChannelId = actor.textChannelId
                     state.value.queue.push(...(normalized as MusicTrack[]))
@@ -321,6 +334,7 @@ export class MusicService {
             return this.snapshot(actor.guildId)
         } finally {
             release()
+            stopped()
             state.requests--
             if (state.requests === 0 && state.value.revision === 0 && !state.transport)
                 this.states.delete(actor.guildId)
@@ -386,12 +400,35 @@ export class MusicService {
                 generation: new AbortController(),
                 mutations: Promise.resolve(),
                 searchTail: Promise.resolve(),
+                barrier: Promise.resolve(),
+                handedOff: false,
                 seekable: false,
                 requests: 0,
             }
             this.states.set(guildId, state)
         }
         return state
+    }
+    /**
+     * Picks the access check for an action. A connected Bot needs `control` in its channel; a
+     * joining or suspended session is bound to its stored channel, so acting on it needs voice
+     * presence there (`queue`). Only an idle, sessionless guild falls back to `view`.
+     */
+    private accessFor(
+        state: GuildMusic,
+        action: MusicAction
+    ): ["view" | "queue" | "control", string | undefined] {
+        const value = state.value
+        const botChannel = this.dependencies.voice.channelId(value.guildId)
+        const joining = !!state.runner && !value.connected
+        const stored = value.voiceChannelId ?? undefined
+        if (action.type === "play" || action.type === "enqueue")
+            return ["queue", !botChannel && joining ? stored : action.voiceChannelId]
+        if (action.type === "resume" && !value.connected)
+            return ["queue", joining ? stored : undefined]
+        if (botChannel) return ["control", undefined]
+        if (stored && (value.current || value.queue.length)) return ["queue", stored]
+        return ["view", undefined]
     }
     private validate(action: MusicAction): void {
         const known = [
@@ -478,6 +515,7 @@ export class MusicService {
         } finally {
             state.runner = undefined
             state.trackController = undefined
+            state.handedOff = false
             state.seekable = false
         }
     }
@@ -510,6 +548,7 @@ export class MusicService {
     }
     private async advance(state: GuildMusic, reason: "end" | "skip" | "error"): Promise<void> {
         const current = state.value.current
+        const suspended = !state.value.connected && !state.runner
         await this.stopTrack(state)
         if (
             current &&
@@ -525,11 +564,35 @@ export class MusicService {
         state.value.positionMs = 0
         state.value.durationMs = state.value.current?.durationMs ?? 0
         state.value.playbackUrl = null
-        state.value.status = state.value.current ? "playing" : "idle"
+        // A suspended or restored session stays paused: only an authorized resume reopens voice.
+        state.value.status = !state.value.current ? "idle" : suspended ? "paused" : "playing"
         if (reason === "error")
             state.value.lastError = "A track could not be played and was skipped"
         this.publish(state)
-        this.ensureTrack(state)
+        if (!suspended) this.ensureTrack(state)
+    }
+    /**
+     * Joins voice and connects the transport under the session generation, not one track, so a
+     * skip mid-connect hands the connection to the next track instead of stranding the join.
+     */
+    private connect(state: GuildMusic, transport: MusicTransport): Promise<void> {
+        const signal = state.generation.signal
+        const work = (async () => {
+            const grant = await abortable(
+                this.dependencies.voice.join(
+                    state.value.guildId,
+                    state.value.voiceChannelId!,
+                    signal
+                ),
+                signal
+            )
+            await abortable(transport.connect(grant, signal), signal)
+            state.value.connected = true
+        })()
+        const settled = work.finally(() => {
+            if (state.connecting === settled) state.connecting = undefined
+        })
+        return settled
     }
     private ensureTrack(state: GuildMusic): void {
         if (state.runner || !state.value.current || !state.value.voiceChannelId || this.closed)
@@ -550,17 +613,9 @@ export class MusicService {
         const run = async () => {
             try {
                 if (!state.value.connected) {
-                    const grant = await abortable(
-                        this.dependencies.voice.join(
-                            state.value.guildId,
-                            state.value.voiceChannelId!,
-                            signal
-                        ),
-                        signal
-                    )
-                    await abortable(transport.connect(grant, signal), signal)
+                    state.connecting ??= this.connect(state, transport)
+                    await abortable(state.connecting, signal)
                     if (!current()) return
-                    state.value.connected = true
                 }
                 await abortable(
                     this.dependencies.verifyBotAccess(
@@ -593,6 +648,7 @@ export class MusicService {
                 state.value.lastError = null
                 this.publish(state)
                 handedOff = true
+                state.handedOff = true
                 await transport.play(prepared, offset, signal)
                 if (current())
                     await this.mutate(state, async () => {
