@@ -131,7 +131,7 @@ test("native startup composes only music, ignores deferred command names, and fl
     })
     await settleMusic()
     assert.match(messages[0], /playlist/)
-    assert.match(messages[1], /Unknown command/)
+    assert.equal(messages.length, 1, "deferred commands outside the control channel get no reply")
     assert.doesNotMatch(messages[0], /autoplay|round.robin|countdown|download|alert/i)
     let checks = 0,
         release: () => void

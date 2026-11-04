@@ -239,3 +239,21 @@ test("queue index commands authorize before revealing whether an entry exists", 
     assert.match(h.replies[0].body.content, /Manage Guild/)
     assert.equal(h.actions.length, 0)
 })
+
+test("unknown prefix commands outside the control channel are ignored, not answered", async () => {
+    const h = harness()
+    await h.send("!rank", { channelId: "5" })
+    await h.send("!!!", { channelId: "5" })
+    assert.equal(h.replies.length, 0)
+    await h.send("!skip", { channelId: "5" })
+    assert.equal(h.replies.length, 1)
+})
+
+test("play queries may start with an apostrophe; other commands explain unclosed quotes", async () => {
+    const h = harness()
+    await h.send("!play 'Til Tuesday")
+    assert.deepEqual(h.actions, [{ type: "play", query: "'Til Tuesday" }])
+    await h.send('!playlist view "Road trip')
+    assert.equal(h.replies[1].body.content, "Close the quoted argument")
+    assert.equal(h.playlists.length, 0)
+})

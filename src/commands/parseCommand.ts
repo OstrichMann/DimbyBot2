@@ -2,6 +2,8 @@ export interface ParsedCommand {
     name: string
     args: string[]
     remainder: string
+    /** An argument quote was never closed; only commands that read `args` should reject it. */
+    unclosedQuote?: boolean
 }
 
 /** Quotes group arguments only at token boundaries; apostrophes in song titles remain ordinary text. */
@@ -34,9 +36,8 @@ export function parseCommand(content: string, prefix: string): ParsedCommand | n
             started = true
         }
     }
-    if (quote) throw new Error("Close the quoted argument")
     if (started) args.push(token)
-    return { name, args, remainder }
+    return quote ? { name, args, remainder, unclosedQuote: true } : { name, args, remainder }
 }
 
 /** Prefix commands accept decimal seconds or mm:ss, without JavaScript numeric syntax. */

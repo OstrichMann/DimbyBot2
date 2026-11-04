@@ -54,6 +54,28 @@ function playlistAction(args: string[]): PlaylistAction {
     }
 }
 
+/** Every command name `musicCommand` answers; anything else is another bot's command. */
+export const MUSIC_COMMANDS: ReadonlySet<string> = new Set([
+    "help",
+    "control-channel",
+    "playlist",
+    "queue",
+    "nowplaying",
+    "play",
+    "pause",
+    "resume",
+    "skip",
+    "stop",
+    "leave",
+    "clear",
+    "shuffle",
+    "seek",
+    "volume",
+    "loop",
+    "remove",
+    "move",
+])
+
 /** Converts native text commands to application actions; all authorization stays in the services. */
 export async function musicCommand(
     command: ParsedCommand,
@@ -61,6 +83,9 @@ export async function musicCommand(
 ): Promise<string> {
     const { actor, dependencies: deps } = context
     const { name, args, remainder } = command
+    // `play` reads the raw remainder, so a leading apostrophe ('Til Tuesday) is just text.
+    if (command.unclosedQuote && name !== "play")
+        throw new MusicError(400, "Close the quoted argument")
     if (name === "help")
         return `${deps.prefix}play <query or URL> · pause · resume · skip · stop · leave · queue · remove <position> · move <from> <to> · clear · seek <seconds|mm:ss> · volume <0–100> · loop <off|track|queue> · shuffle · nowplaying\n${deps.prefix}playlist create/list/view/rename/delete/add/remove/move/play\n${deps.prefix}control-channel <channel-id|off>`
     if (name === "control-channel") {

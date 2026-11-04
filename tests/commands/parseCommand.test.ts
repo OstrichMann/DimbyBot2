@@ -16,7 +16,8 @@ test("preserves play remainder and natural apostrophes while supporting quoted p
     ])
     assert.equal(parseCommand("hello", "!"), null)
     assert.equal(parseCommand("!HELP", "!")?.name, "help")
-    assert.throws(() => parseCommand('!playlist create "Unfinished', "!"), /quote/i)
+    assert.equal(parseCommand('!playlist create "Unfinished', "!")?.unclosedQuote, true)
+    assert.equal(parseCommand("!play 'Til Tuesday", "!")?.remainder, "'Til Tuesday")
 })
 
 test("seek parses seconds or mm:ss and rejects invalid positions", () => {
