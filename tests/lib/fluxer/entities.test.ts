@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { FluxerEntities, normalizeFluxerMessage } from "../../../src/lib/fluxer/entities.js"
+import {
+    FluxerEntities,
+    normalizeFluxerMessage,
+    parseFluxerRole,
+    parseFluxerChannel,
+} from "../../../src/lib/fluxer/entities.js"
 
 test("voice state tracks each connection and removes only the departing connection", () => {
     const entities = new FluxerEntities()
@@ -107,4 +112,20 @@ test("native messages validate boundaries and mark bots, webhooks and DMs", () =
     )
     for (const value of [null, {}, { id: 1 }, { id: "1", channel_id: "3", author: {} }])
         assert.equal(normalizeFluxerMessage(value), null)
+})
+
+test("malformed permission masks, overwrite types and overflowing IDs cannot grant access", () => {
+    assert.equal(parseFluxerRole({ id: "1", permissions: "18446744073709551616" }), null)
+    assert.equal(parseFluxerRole({ id: "18446744073709551616", permissions: "8" }), null)
+    assert.equal(
+        parseFluxerChannel(
+            {
+                id: "2",
+                type: 2,
+                permission_overwrites: [{ id: "1", type: "0", allow: "8", deny: "0" }],
+            },
+            "1"
+        )?.complete,
+        false
+    )
 })

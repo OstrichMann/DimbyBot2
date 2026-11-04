@@ -1,4 +1,5 @@
 import type { FluxerDispatch } from "./gateway.js"
+import { isFluxerId } from "../../shared/fluxer-user-id.js"
 
 export function fluxerRecord(value: unknown): Record<string, unknown> {
     return value && typeof value === "object" && !Array.isArray(value)
@@ -6,10 +7,13 @@ export function fluxerRecord(value: unknown): Record<string, unknown> {
         : {}
 }
 function id(value: unknown): string | undefined {
-    return typeof value === "string" && /^[1-9]\d{0,19}$/.test(value) ? value : undefined
+    return isFluxerId(value) ? value : undefined
 }
 function bits(value: unknown): bigint | undefined {
-    return typeof value === "string" && /^\d+$/.test(value) && value.length <= 30
+    return typeof value === "string" &&
+        /^\d+$/.test(value) &&
+        value.length <= 20 &&
+        BigInt(value) <= (1n << 64n) - 1n
         ? BigInt(value)
         : undefined
 }
@@ -107,7 +111,7 @@ export function parseFluxerChannel(value: unknown, guildId: string): FluxerChann
                 deny = bits(overwrite.deny)
             if (
                 !id(overwrite.id) ||
-                ![0, 1].includes(Number(overwrite.type)) ||
+                (overwrite.type !== 0 && overwrite.type !== 1) ||
                 allow === undefined ||
                 deny === undefined
             ) {
