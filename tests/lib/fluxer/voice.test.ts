@@ -73,6 +73,35 @@ test("cancellation rejects immediately and late grants are disconnected rather t
     assert.equal(h.clock.pending, 0)
 })
 
+test("a refused join that never receives a grant stops blocking new joins after a short grace", async () => {
+    const h = harness()
+    const refused = h.voice.join("1", "2", new AbortController().signal)
+    const rejected = assert.rejects(refused, /timed out/i)
+    await h.clock.advance(15_000)
+    await rejected
+    await assert.rejects(h.voice.join("1", "2", new AbortController().signal), /settling/i)
+    await h.clock.advance(5_000)
+    const retried = h.voice.join("1", "2", new AbortController().signal)
+    h.voice.handleDispatch({ t: "VOICE_SERVER_UPDATE", d: grant })
+    assert.equal((await retried).connectionId, "conn")
+    assert.equal(h.voice.channelId("1"), "2")
+})
+
+test("a late grant for a join abandoned past the grace window is disconnected, not ignored", async () => {
+    const h = harness(),
+        controller = new AbortController()
+    const joined = h.voice.join("1", "2", controller.signal)
+    controller.abort()
+    await assert.rejects(joined, { name: "AbortError" })
+    await h.clock.advance(5_000)
+    h.voice.handleDispatch({ t: "VOICE_SERVER_UPDATE", d: grant })
+    assert.equal(h.voice.channelId("1"), null)
+    assert.deepEqual(h.sent.at(-1), {
+        op: 4,
+        d: { guild_id: "1", channel_id: null, connection_id: "conn" },
+    })
+})
+
 test("moved and disconnected connections notify consumers and fresh READY resets pending state", async () => {
     const h = harness()
     const joined = h.voice.join("1", "2", new AbortController().signal)

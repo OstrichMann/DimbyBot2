@@ -20,11 +20,22 @@ interface PendingJoin {
     resolve: (grant: VoiceGrant) => void
     reject: (error: Error) => void
     cleanup: () => void
+    /** Cancels the grace timer that releases a canceled join. */
+    release?: () => void
 }
 
-/** Correlates session-only grants; canceled joins stay quarantined until drained or a fresh READY. */
+/** How long a canceled join keeps the guild reserved so its late grant can be correlated. */
+const CANCELED_JOIN_GRACE_MS = 5_000
+
+/**
+ * Correlates session-only grants. A canceled join keeps the guild reserved for a short grace so
+ * its late grant is disconnected rather than adopted; a refused join gets no grant, so the
+ * reservation must expire or the guild could never join again.
+ */
 export class FluxerVoice {
     private readonly pending = new Map<string, PendingJoin>()
+    /** Channels of joins released after their grace; a late grant for one is disconnected. */
+    private readonly abandoned = new Map<string, string>()
     private readonly active = new Map<string, { channelId: string; grant: VoiceGrant }>()
     private readonly schedule: NonNullable<VoiceDependencies["schedule"]>
     constructor(private readonly dependencies: VoiceDependencies) {
@@ -54,8 +65,7 @@ export class FluxerVoice {
                 cleanup: () => {},
             }
             const cancel = (error: Error) => {
-                pending.canceled = true
-                pending.cleanup()
+                this.abandon(guildId, pending)
                 reject(error)
             }
             const abort = () => cancel(new DOMException("Voice join aborted", "AbortError"))
@@ -67,6 +77,7 @@ export class FluxerVoice {
                 cancelTimer()
                 signal.removeEventListener("abort", abort)
             }
+            this.abandoned.delete(guildId)
             this.pending.set(guildId, pending)
             signal.addEventListener("abort", abort, { once: true })
             try {
@@ -89,8 +100,7 @@ export class FluxerVoice {
     async leave(guildId: string): Promise<void> {
         const pending = this.pending.get(guildId)
         if (pending && !pending.canceled) {
-            pending.canceled = true
-            pending.cleanup()
+            this.abandon(guildId, pending)
             pending.reject(new DOMException("Voice join canceled", "AbortError"))
         }
         const active = this.active.get(guildId)
@@ -107,9 +117,11 @@ export class FluxerVoice {
         if (event.t === "READY") {
             for (const pending of this.pending.values()) {
                 pending.cleanup()
+                pending.release?.()
                 pending.reject(new Error("Fluxer voice session replaced"))
             }
             this.pending.clear()
+            this.abandoned.clear()
             for (const id of this.active.keys()) this.dependencies.onDisconnect?.(id)
             this.active.clear()
             return
@@ -135,6 +147,16 @@ export class FluxerVoice {
         }
         if (event.t !== "VOICE_SERVER_UPDATE") return
         const pending = this.pending.get(guildId)
+        if (!pending && !current && this.abandoned.get(guildId) === data.channel_id) {
+            this.abandoned.delete(guildId)
+            if (typeof data.connection_id === "string")
+                this.dependencies.send(4, {
+                    guild_id: guildId,
+                    channel_id: null,
+                    connection_id: data.connection_id,
+                })
+            return
+        }
         const matchesPending = pending?.channelId === data.channel_id
         const matchesActive =
             current?.grant.connectionId === data.connection_id &&
@@ -147,6 +169,7 @@ export class FluxerVoice {
                     channel_id: null,
                     connection_id: data.connection_id,
                 })
+            pending.release?.()
             this.pending.delete(guildId)
             return
         }
@@ -212,6 +235,17 @@ export class FluxerVoice {
     async stop(): Promise<void> {
         for (const id of new Set([...this.active.keys(), ...this.pending.keys()]))
             await this.leave(id)
+        for (const pending of this.pending.values()) pending.release?.()
         this.pending.clear()
+        this.abandoned.clear()
+    }
+    private abandon(guildId: string, pending: PendingJoin): void {
+        pending.canceled = true
+        pending.cleanup()
+        pending.release = this.schedule(() => {
+            if (this.pending.get(guildId) !== pending) return
+            this.pending.delete(guildId)
+            this.abandoned.set(guildId, pending.channelId)
+        }, CANCELED_JOIN_GRACE_MS)
     }
 }
