@@ -22,6 +22,13 @@ export class PlaylistNotFoundError extends Error {
     }
 }
 
+export class PlaylistLimitError extends Error {
+    constructor() {
+        super("Playlist limit is 1000 tracks")
+        this.name = "PlaylistLimitError"
+    }
+}
+
 export class PlaylistTrackNotFoundError extends Error {
     constructor(positionOrMessage: number | string) {
         super(
@@ -137,6 +144,50 @@ export async function getPlaylistById(playlistId: number): Promise<PlaylistData 
     return row ? toPlaylistData(row) : null
 }
 
+/** Fetches tracks only when the playlist belongs to the authenticated platform user. */
+export async function getOwnedPlaylistById(
+    userId: string,
+    playlistId: number
+): Promise<PlaylistData | null> {
+    const row = await getPrismaClient().playlist.findFirst({
+        where: { id: playlistId, userId },
+        include: playlistWithTracksInclude,
+    })
+    return row ? toPlaylistData(row) : null
+}
+
+/** Owner predicate is applied by the write itself, including concurrent ownership changes. */
+export async function renameOwnedPlaylist(
+    userId: string,
+    playlistId: number,
+    name: string
+): Promise<void> {
+    try {
+        const result = await getPrismaClient().playlist.updateMany({
+            where: { id: playlistId, userId },
+            data: { name },
+        })
+        if (result.count === 0) throw new PlaylistNotFoundError()
+    } catch (error) {
+        if (isUniqueConstraintError(error)) throw new PlaylistDuplicateNameError(name)
+        throw error
+    }
+}
+
+/** The guarded parent UPDATE locks ownership for every subsequent track write in this transaction. */
+async function requirePlaylistOwner(
+    tx: Prisma.TransactionClient,
+    playlistId: number,
+    userId?: string
+): Promise<void> {
+    if (userId === undefined) return
+    const result = await tx.playlist.updateMany({
+        where: { id: playlistId, userId },
+        data: { updatedAt: new Date() },
+    })
+    if (result.count !== 1) throw new PlaylistNotFoundError()
+}
+
 /** Creates an empty playlist for the user. */
 export async function createPlaylist(userId: string, name: string): Promise<PlaylistData> {
     const prisma = getPrismaClient()
@@ -204,9 +255,10 @@ export async function getPlaylistTracks(playlistId: number): Promise<PlaylistTra
 /** Appends a track with the next available position. */
 export async function addTrackToPlaylist(
     playlistId: number,
-    trackData: PlaylistTrackInput
+    trackData: PlaylistTrackInput,
+    ownerId?: string
 ): Promise<PlaylistTrackData> {
-    const rows = await addTracksToPlaylist(playlistId, [trackData])
+    const rows = await addTracksToPlaylist(playlistId, [trackData], ownerId)
     return rows[0]!
 }
 
@@ -216,14 +268,18 @@ function isUniqueConstraintError(error: unknown): boolean {
 
 async function appendTracksInTransaction(
     playlistId: number,
-    tracksData: PlaylistTrackInput[]
+    tracksData: PlaylistTrackInput[],
+    ownerId?: string
 ): Promise<PlaylistTrackData[]> {
     const prisma = getPrismaClient()
     return prisma.$transaction(async (tx) => {
+        await requirePlaylistOwner(tx, playlistId, ownerId)
         const agg = await tx.playlistTrack.aggregate({
             where: { playlistId },
             _max: { position: true },
         })
+        if (ownerId !== undefined && (agg._max.position ?? 0) + tracksData.length > 1000)
+            throw new PlaylistLimitError()
         let nextPosition = (agg._max.position ?? 0) + 1
         const created: PlaylistTrackData[] = []
         for (const trackData of tracksData) {
@@ -253,13 +309,14 @@ async function appendTracksInTransaction(
 /** Appends multiple tracks in order with consecutive positions. */
 export async function addTracksToPlaylist(
     playlistId: number,
-    tracksData: PlaylistTrackInput[]
+    tracksData: PlaylistTrackInput[],
+    ownerId?: string
 ): Promise<PlaylistTrackData[]> {
     if (tracksData.length === 0) return []
     const maxAttempts = 4
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-            return await appendTracksInTransaction(playlistId, tracksData)
+            return await appendTracksInTransaction(playlistId, tracksData, ownerId)
         } catch (error: unknown) {
             if (!isUniqueConstraintError(error) || attempt === maxAttempts - 1) {
                 throw error
@@ -274,36 +331,68 @@ export async function addTracksToPlaylist(
 export async function movePlaylistTrack(
     playlistId: number,
     fromPosition: number,
-    toPosition: number
+    toPosition: number,
+    ownerId?: string
 ): Promise<void> {
-    if (fromPosition === toPosition) return
+    if (fromPosition === toPosition && ownerId === undefined) return
     const prisma = getPrismaClient()
     await prisma.$transaction(async (tx) => {
+        await requirePlaylistOwner(tx, playlistId, ownerId)
+        if (fromPosition === toPosition) return
         const rows = await tx.playlistTrack.findMany({
             where: { playlistId },
             orderBy: { position: "asc" },
         })
-        const ordered = reorderPlaylistTrackRows(rows, fromPosition, toPosition)
-        if (ordered.ok === false) {
-            throw new PlaylistTrackNotFoundError(ordered.missingPosition)
-        }
-        const reordered = ordered.rows
-        for (let i = 0; i < reordered.length; i++) {
-            await tx.playlistTrack.update({
-                where: { id: reordered[i]!.id },
-                data: { position: -(i + 1) },
-            })
-        }
-        for (let i = 0; i < reordered.length; i++) {
-            await tx.playlistTrack.update({
-                where: { id: reordered[i]!.id },
-                data: { position: i + 1 },
-            })
-        }
-        await tx.playlist.update({
-            where: { id: playlistId },
-            data: { updatedAt: new Date() },
+        await reorderTracksInTransaction(tx, playlistId, rows, fromPosition, toPosition)
+    })
+}
+
+async function reorderTracksInTransaction(
+    tx: Prisma.TransactionClient,
+    playlistId: number,
+    rows: { id: number; position: number }[],
+    fromPosition: number,
+    toPosition: number
+): Promise<void> {
+    const ordered = reorderPlaylistTrackRows(rows, fromPosition, toPosition)
+    if (ordered.ok === false) {
+        throw new PlaylistTrackNotFoundError(ordered.missingPosition)
+    }
+    const reordered = ordered.rows
+    for (let i = 0; i < reordered.length; i++) {
+        await tx.playlistTrack.update({
+            where: { id: reordered[i]!.id },
+            data: { position: -(i + 1) },
         })
+    }
+    for (let i = 0; i < reordered.length; i++) {
+        await tx.playlistTrack.update({
+            where: { id: reordered[i]!.id },
+            data: { position: i + 1 },
+        })
+    }
+    await tx.playlist.update({
+        where: { id: playlistId },
+        data: { updatedAt: new Date() },
+    })
+}
+
+/** Resolves the selected row's current position after locking its owner, avoiding stale-index edits. */
+export async function movePlaylistTrackById(
+    playlistId: number,
+    trackId: number,
+    toPosition: number,
+    ownerId: string
+): Promise<void> {
+    await getPrismaClient().$transaction(async (tx) => {
+        await requirePlaylistOwner(tx, playlistId, ownerId)
+        const rows = await tx.playlistTrack.findMany({
+            where: { playlistId },
+            orderBy: { position: "asc" },
+        })
+        const selected = rows.find((row) => row.id === trackId)
+        if (!selected) throw new PlaylistTrackNotFoundError("Track not found in this playlist.")
+        await reorderTracksInTransaction(tx, playlistId, rows, selected.position, toPosition)
     })
 }
 
@@ -327,10 +416,12 @@ async function removePlaylistTrackRowAndRenumber(
 /** Removes a track by stable row id and reorders remaining tracks (safe when positions drift). */
 export async function removeTrackFromPlaylistById(
     playlistId: number,
-    trackId: number
+    trackId: number,
+    ownerId?: string
 ): Promise<void> {
     const prisma = getPrismaClient()
     await prisma.$transaction(async (tx) => {
+        await requirePlaylistOwner(tx, playlistId, ownerId)
         const row = await tx.playlistTrack.findFirst({
             where: { id: trackId, playlistId },
         })
@@ -342,9 +433,14 @@ export async function removeTrackFromPlaylistById(
 }
 
 /** Removes the track at the given position and reorders remaining tracks. */
-export async function removeTrackFromPlaylist(playlistId: number, position: number): Promise<void> {
+export async function removeTrackFromPlaylist(
+    playlistId: number,
+    position: number,
+    ownerId?: string
+): Promise<void> {
     const prisma = getPrismaClient()
     await prisma.$transaction(async (tx) => {
+        await requirePlaylistOwner(tx, playlistId, ownerId)
         const row = await tx.playlistTrack.findFirst({
             where: { playlistId, position },
         })

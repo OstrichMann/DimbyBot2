@@ -128,6 +128,30 @@ export class FluxerAccess {
             if (action === "configure") {
                 if (!(effectivePermissions(actor.guildId, ownerId, member, roles) & MANAGE_GUILD))
                     throw new MusicAccessError(403, "Manage Guild permission required")
+                if (channelId) {
+                    const value = await rest.request<unknown>("GET", `/channels/${channelId}`)
+                    const channel = parseFluxerChannel(value, actor.guildId)
+                    const required = VIEW | (1n << 11n) | (1n << 14n)
+                    if (
+                        !channel ||
+                        channel.id !== channelId ||
+                        fluxerRecord(value).guild_id !== actor.guildId ||
+                        ![0, 5].includes(channel.type)
+                    )
+                        throw new MusicAccessError(403, "Choose a text channel in this guild")
+                    if (!channel.complete)
+                        throw new MusicAccessError(503, "Channel permissions unavailable")
+                    if (
+                        !(
+                            effectivePermissions(actor.guildId, ownerId, member, roles, channel) &
+                            VIEW
+                        ) ||
+                        (effectivePermissions(actor.guildId, ownerId, bot, roles, channel) &
+                            required) !==
+                            required
+                    )
+                        throw new MusicAccessError(403, "Control channel permission denied")
+                }
                 voiceChannelId = null
             } else {
                 const userChannels = entities.voiceChannelsFor(actor.guildId, actor.userId)

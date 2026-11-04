@@ -171,3 +171,24 @@ test("requires the bot's Speak permission and refuses channels from a different 
     h.channel.guild_id = "5"
     await assert.rejects(h.access.authorizeMusic(actor, "queue"), /permission/i)
 })
+
+test("control channel configuration requires a same-guild text channel visible to actor and writable by bot", async () => {
+    const h = harness()
+    h.roles[1].permissions = (1n << 5n).toString()
+    h.channel.type = 0
+    h.roles[0].permissions = ((1n << 10n) | (1n << 11n) | (1n << 14n)).toString()
+    await h.access.authorizeMusic(actor, "configure", "2")
+    h.channel.guild_id = "3"
+    await assert.rejects(
+        h.access.authorizeMusic(actor, "configure", "2"),
+        (e) => e instanceof MusicAccessError && e.status === 403
+    )
+    h.channel.guild_id = "1"
+    h.channel.permission_overwrites = [
+        { id: "8", type: 1, allow: "0", deny: (1n << 11n).toString() },
+    ]
+    await assert.rejects(
+        h.access.authorizeMusic(actor, "configure", "2"),
+        (e) => e instanceof MusicAccessError && e.status === 403
+    )
+})
