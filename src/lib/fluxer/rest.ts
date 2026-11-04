@@ -21,12 +21,28 @@ function seconds(value: unknown): number | null {
     return Number.isFinite(number) && number >= 0 ? number * 1000 : null
 }
 
-/** Serializes bot requests and honors route/global cooldowns without replaying ambiguous writes. */
+/** Longest cooldown a request will sleep through; longer waits fail fast as HTTP 429. */
+const MAX_RATE_LIMIT_WAIT_MS = 10_000
+
+function untilAborted<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return promise
+    if (signal.aborted) return Promise.reject(signal.reason)
+    return new Promise<T>((resolve, reject) => {
+        const abort = () => reject(signal.reason)
+        signal.addEventListener("abort", abort, { once: true })
+        promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort))
+    })
+}
+
+/**
+ * Serializes requests per rate-limit bucket (not globally) so one exhausted route cannot stall
+ * the rest; honors route/global cooldowns within a bounded wait and never replays ambiguous writes.
+ */
 export class FluxerRest {
     private readonly fetchImpl: typeof fetch
     private readonly now: () => number
     private readonly sleep: NonNullable<RestDependencies["sleep"]>
-    private tail: Promise<unknown> = Promise.resolve()
+    private readonly chains = new Map<string, Promise<void>>()
     private globalReadyAt = 0
     private readonly routeBuckets = new Map<string, string>()
     private readonly readyAt = new Map<string, number>()
@@ -61,9 +77,23 @@ export class FluxerRest {
         path: string,
         options: { body?: unknown; signal?: AbortSignal } = {}
     ): Promise<T> {
-        const execute = async () => this.perform<T>(method.toUpperCase(), path, options)
-        const result = this.tail.then(execute)
-        this.tail = result.catch(() => undefined)
+        const upper = method.toUpperCase()
+        const route = `${upper} ${path}`
+        const key = this.routeBuckets.get(route) ?? route
+        const previous = this.chains.get(key) ?? Promise.resolve()
+        const result = untilAborted(previous, options.signal).then(() =>
+            this.perform<T>(upper, path, options)
+        )
+        // The chain waits for the head even if this caller aborted while queued.
+        const settled = result.then(
+            () => undefined,
+            () => undefined
+        )
+        const tail = previous.then(() => settled)
+        this.chains.set(key, tail)
+        void tail.then(() => {
+            if (this.chains.get(key) === tail) this.chains.delete(key)
+        })
         return result
     }
 
@@ -87,6 +117,7 @@ export class FluxerRest {
             signal?.throwIfAborted()
             const bucket = this.routeBuckets.get(route) ?? route
             const waitMs = Math.max(this.globalReadyAt, this.readyAt.get(bucket) ?? 0) - this.now()
+            if (waitMs > MAX_RATE_LIMIT_WAIT_MS) throw new FluxerRestError(429)
             if (waitMs > 0) await this.sleep(waitMs, signal)
             signal?.throwIfAborted()
             this.globalReadyAt = this.now() + 20
@@ -138,7 +169,7 @@ export class FluxerRest {
                 if (data.global === true || response.headers.get("X-RateLimit-Global") === "true")
                     this.globalReadyAt = until
                 else this.readyAt.set(actualBucket, until)
-                if (attempt < 2) continue
+                if (attempt < 2 && retryMs <= MAX_RATE_LIMIT_WAIT_MS) continue
             }
             if (!response.ok) throw new FluxerRestError(response.status)
             if (response.status === 204) return undefined as T

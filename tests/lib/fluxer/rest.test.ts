@@ -125,3 +125,94 @@ test("aborted callers cannot send requests or retry after rate limiting", async 
     })
     assert.equal(calls, 1)
 })
+
+function gatedSleep() {
+    const sleeps: { ms: number; release: () => void }[] = []
+    let now = 0
+    return {
+        sleeps,
+        now: () => now,
+        sleep: (ms: number, signal?: AbortSignal) =>
+            new Promise<void>((resolve, reject) => {
+                signal?.throwIfAborted()
+                // Short global spacing passes through; only real cooldowns are held.
+                if (ms < 1000) {
+                    now += ms
+                    return resolve()
+                }
+                signal?.addEventListener("abort", () => reject(signal.reason), { once: true })
+                sleeps.push({
+                    ms,
+                    release: () => {
+                        now += ms
+                        resolve()
+                    },
+                })
+            }),
+    }
+}
+
+test("a rate-limited route does not hold up requests to unrelated routes", async () => {
+    const clock = gatedSleep()
+    let limited = true
+    const rest = new FluxerRest("https://api.example/api/v1", "private-token", {
+        now: clock.now,
+        sleep: clock.sleep,
+        fetchImpl: async (input) => {
+            if (String(input).endsWith("/messages") && limited) {
+                limited = false
+                return Response.json({ retry_after: 5 }, { status: 429 })
+            }
+            return Response.json({ ok: true })
+        },
+    })
+    const slow = rest.request("POST", "/channels/1/messages", { body: {} })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(clock.sleeps.length, 1)
+    assert.deepEqual(await rest.request("GET", "/guilds/2"), { ok: true })
+    clock.sleeps[0].release()
+    assert.deepEqual(await slow, { ok: true })
+})
+
+test("a retry wait beyond the request budget fails fast instead of stalling the bucket", async () => {
+    const clock = gatedSleep()
+    let calls = 0
+    const rest = new FluxerRest("https://api.example/api/v1", "private-token", {
+        now: clock.now,
+        sleep: clock.sleep,
+        fetchImpl: async () => {
+            calls++
+            return Response.json({ retry_after: 60 }, { status: 429 })
+        },
+    })
+    await assert.rejects(
+        rest.request("GET", "/guilds/1"),
+        (e) => e instanceof FluxerRestError && e.status === 429
+    )
+    assert.equal(calls, 1)
+    assert.equal(clock.sleeps.length, 0)
+})
+
+test("a queued caller whose signal aborts is rejected without waiting for the head request", async () => {
+    const clock = gatedSleep()
+    let calls = 0
+    const rest = new FluxerRest("https://api.example/api/v1", "private-token", {
+        now: clock.now,
+        sleep: clock.sleep,
+        fetchImpl: async () => {
+            calls++
+            return calls === 1
+                ? Response.json({ retry_after: 5 }, { status: 429 })
+                : Response.json({ ok: true })
+        },
+    })
+    const head = rest.request("GET", "/guilds/1")
+    await new Promise((resolve) => setImmediate(resolve))
+    const controller = new AbortController()
+    const queued = rest.request("GET", "/guilds/1", { signal: controller.signal })
+    controller.abort()
+    await assert.rejects(queued, { name: "AbortError" })
+    clock.sleeps[0].release()
+    assert.deepEqual(await head, { ok: true })
+    assert.equal(calls, 2)
+})
