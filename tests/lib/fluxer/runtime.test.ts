@@ -30,7 +30,9 @@ test("native startup composes only music, ignores deferred command names, and fl
         h = musicServiceHarness()
     let dispatch: (event: FluxerDispatch) => Promise<void>,
         ready = false,
-        failProbe = false
+        failProbe = false,
+        hangPosts = false
+    const releasePosts: Array<() => void> = []
     const settings = new Map<string, { channelId: string | null; messageId: string | null }>()
     const storage: RuntimeStorage = {
         start: async () => {
@@ -81,6 +83,10 @@ test("native startup composes only music, ignores deferred command names, and fl
                         messages.push(String(JSON.parse(init.body as string).content))
                         return Response.json({ id: "7" })
                     }
+                    if (hangPosts)
+                        return new Promise((resolve) => {
+                            releasePosts.push(() => resolve(Response.json({ id: "8", bot: true })))
+                        })
                     return Response.json({ id: "8", bot: true })
                 },
             }),
@@ -151,6 +157,36 @@ test("native startup composes only music, ignores deferred command names, and fl
     release!()
     await settleMusic()
     assert.equal(checks, 2, "one fresh check follows the coalesced changes")
+    hangPosts = true
+    for (let i = 0; i < 1000; i++)
+        await dispatch!({
+            t: "MESSAGE_CREATE",
+            d: {
+                id: String(i + 10),
+                guild_id: "1",
+                channel_id: "4",
+                author: { id: "9" },
+                content: "!play song",
+            },
+        })
+    await settleMusic()
+    const queued = messages.length
+    await dispatch!({
+        t: "MESSAGE_CREATE",
+        d: {
+            id: "2000",
+            guild_id: "1",
+            channel_id: "4",
+            author: { id: "9" },
+            content: "!skip",
+        },
+    })
+    await settleMusic()
+    assert.match(messages[queued] ?? "", /busy/i)
+    assert.equal(messages.length, queued + 1)
+    hangPosts = false
+    for (const releasePost of releasePosts) releasePost()
+    await settleMusic()
     await client.destroy()
     assert.equal(client.ready, false)
     assert.ok(calls.indexOf("gateway-stop") < calls.indexOf("storage-close"))

@@ -78,6 +78,7 @@ export default class BotClient {
     private readonly requests = new AbortController()
     private readonly tasks = new Set<Promise<unknown>>()
     private readonly waitingMessages: FluxerMessage[] = []
+    private busyReplies = 0
     private readonly invalidators = new Set<(guildId: string) => void>()
     private readonly platformChecks = new Map<string, { dirty: boolean }>()
     private resolver: Pick<SourceResolver, "load" | "prepare" | "search">
@@ -286,8 +287,10 @@ export default class BotClient {
         if (event.t === "MESSAGE_CREATE") {
             const message = normalizeFluxerMessage(event.d)
             if (!message || message.bot || message.webhook || !message.guildId) return
-            if (this.tasks.size + this.waitingMessages.length >= 1000)
-                throw new Error("Native command queue is full")
+            if (this.tasks.size + this.waitingMessages.length >= 1000) {
+                this.replyBusy(message)
+                return
+            }
             if (!this.initialized) this.waitingMessages.push(message)
             else this.command(message)
             return
@@ -307,6 +310,23 @@ export default class BotClient {
         for (const guildId of affected) if (guildId) this.platformChanged(guildId)
         if (event.t === "GUILD_CREATE" && this.initialized)
             this.background(this.persistence.restore())
+    }
+    /** A rejected message is acknowledged by returning; it must not fail the Gateway dispatch. */
+    private replyBusy(message: FluxerMessage): void {
+        if (this.busyReplies >= 8) return
+        this.busyReplies++
+        this.background(
+            this.rest
+                .request("POST", `/channels/${message.channelId}/messages`, {
+                    body: {
+                        content: "The bot is busy. Try again in a moment.",
+                        allowed_mentions: { parse: [] },
+                    },
+                })
+                .finally(() => {
+                    this.busyReplies--
+                })
+        )
     }
     private command(message: FluxerMessage): void {
         if (this.closing) return

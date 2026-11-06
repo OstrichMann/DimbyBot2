@@ -410,12 +410,24 @@ export class MusicService {
         return state
     }
     /**
+     * Access a caller must hold before reading queue positions. Matches {@link accessFor}, including
+     * a restored paused session, which is `queue` on the stored channel rather than `control`.
+     */
+    requiredAccess(
+        guildId: string,
+        action: MusicAction
+    ): { level: "view" | "queue" | "control"; channelId: string | undefined } {
+        const state = this.states.get(guildId) ?? { value: empty(guildId) }
+        const [level, channelId] = this.accessFor(state, action)
+        return { level, channelId }
+    }
+    /**
      * Picks the access check for an action. A connected Bot needs `control` in its channel; a
      * joining or suspended session is bound to its stored channel, so acting on it needs voice
      * presence there (`queue`). Only an idle, sessionless guild falls back to `view`.
      */
     private accessFor(
-        state: GuildMusic,
+        state: { value: MusicSnapshot; runner?: Promise<void> },
         action: MusicAction
     ): ["view" | "queue" | "control", string | undefined] {
         const value = state.value

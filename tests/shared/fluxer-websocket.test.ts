@@ -151,3 +151,34 @@ test("transient authority failure withholds updates but keeps a subscription for
     assert.equal(socket.sent.filter((frame) => frame.type === "queueUpdate").length, before + 1)
     manager.stop()
 })
+
+test("open subscriptions are not reauthorized on a timer", async () => {
+    const delays: number[] = []
+    const original = globalThis.setInterval
+    globalThis.setInterval = ((handler: () => void, timeout?: number) => {
+        delays.push(Number(timeout))
+        return original(handler, timeout)
+    }) as typeof setInterval
+    const h = musicServiceHarness(),
+        socket = new Socket()
+    let calls = 0
+    let manager: NativeMusicConnections | undefined
+    try {
+        manager = new NativeMusicConnections({
+            music: h.service,
+            authenticate: async () => actor("9"),
+            authorize: async () => {
+                calls++
+                return { inVoiceWithBot: false, canQueueTracks: true }
+            },
+        })
+        await manager.add(socket, new Headers())
+        socket.emit("message", JSON.stringify({ type: "subscribe", guildId: "1" }))
+        await settleMusic()
+        assert.equal(calls, 1)
+        assert.equal(delays.includes(15000), false)
+    } finally {
+        manager?.stop()
+        globalThis.setInterval = original
+    }
+})

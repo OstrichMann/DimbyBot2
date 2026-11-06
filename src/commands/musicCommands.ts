@@ -152,7 +152,13 @@ export async function musicCommand(
         }
         case "remove":
         case "move": {
-            await deps.access.authorizeMusic(actor, "control")
+            const required = deps.music.requiredAccess(
+                actor.guildId,
+                name === "remove"
+                    ? { type: "remove", entryId: "pending" }
+                    : { type: "move", entryId: "pending", toIndex: 0 }
+            )
+            await deps.access.authorizeMusic(actor, required.level, required.channelId)
             const from = index(args[0])
             const entry = deps.music.snapshot(actor.guildId).queue[from - 1]
             if (!entry) throw new MusicError(404, "Queue entry not found")

@@ -19,7 +19,7 @@ interface Dependencies {
     fetchImpl?: typeof fetch
 }
 
-/** Native OAuth guild discovery intersects Bot membership and fresh authoritative access. */
+/** OAuth guild pages intersect known Bot membership. Voice and queue access wait until a guild is opened. */
 export class FluxerDashboard {
     constructor(private readonly dependencies: Dependencies) {}
     async viewer(guildId: string, userId: string): Promise<MusicViewer> {
@@ -36,7 +36,7 @@ export class FluxerDashboard {
         }
     }
     async guilds(actor: AuthenticatedActor): Promise<GuildListResponse> {
-        const { ready, accounts, endpoints, entities, access, music } = this.dependencies
+        const { ready, accounts, endpoints, entities, music } = this.dependencies
         if (!ready()) throw new MusicAccessError(503, "Bot is reconnecting")
         const accessToken = await accounts.accessToken(actor.authUserId)
         const rows: Record<string, unknown>[] = []
@@ -76,34 +76,35 @@ export class FluxerDashboard {
         const guilds: GuildListResponse["guilds"] = []
         for (const row of rows) {
             const guildId = row.id as string
-            if (!entities.getGuild(guildId)?.available) continue
+            const guild = entities.getGuild(guildId)
+            if (!guild?.available) continue
+            let player: GuildListResponse["guilds"][number]["player"] = null
             try {
-                await access.authorizeMusic({ userId: actor.userId, guildId }, "view")
-            } catch (error) {
-                if (error instanceof MusicAccessError && error.status === 403) continue
-                throw error
+                const snapshot = music.snapshot(guildId)
+                const channel = this.dependencies.botChannelId(guildId)
+                if (snapshot.current || snapshot.connected)
+                    player = {
+                        status: snapshot.status,
+                        botInVoiceChannel: snapshot.connected,
+                        inVoiceWithBot:
+                            !!channel &&
+                            entities.voiceChannelsFor(guildId, actor.userId).has(channel),
+                        currentTrackTitle: snapshot.current?.title ?? null,
+                        currentTrackAuthor: snapshot.current?.author ?? null,
+                        queueCount: snapshot.queue.length,
+                    }
+            } catch {
+                player = null
             }
-            const snapshot = music.snapshot(guildId),
-                viewer = await this.viewer(guildId, actor.userId)
             guilds.push({
                 id: guildId,
-                name: typeof row.name === "string" ? row.name : entities.getGuild(guildId)!.name,
+                name: typeof row.name === "string" ? row.name : guild.name,
                 iconUrl:
                     typeof row.icon === "string" && /^[a-zA-Z0-9_]+$/.test(row.icon)
                         ? `${endpoints.media}/icons/${guildId}/${row.icon}.webp`
                         : null,
                 memberCount: null,
-                player:
-                    snapshot.current || snapshot.connected
-                        ? {
-                              status: snapshot.status,
-                              botInVoiceChannel: snapshot.connected,
-                              inVoiceWithBot: viewer.inVoiceWithBot,
-                              currentTrackTitle: snapshot.current?.title ?? null,
-                              currentTrackAuthor: snapshot.current?.author ?? null,
-                              queueCount: snapshot.queue.length,
-                          }
-                        : null,
+                player,
             })
         }
         const invite = new URL(`${endpoints.webapp}/oauth2/authorize`)

@@ -5,7 +5,7 @@ import type { PlaylistService } from "../lib/music/playlistService.js"
 
 export interface CommandDependencies {
     prefix: string
-    music: Pick<MusicService, "execute" | "snapshot">
+    music: Pick<MusicService, "execute" | "snapshot" | "requiredAccess">
     playlists: Pick<PlaylistService, "execute">
     access: Pick<FluxerAccess, "authorizeMusic">
     rest: Pick<FluxerRest, "request">

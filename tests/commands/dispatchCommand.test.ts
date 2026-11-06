@@ -5,7 +5,7 @@ import type { CommandDependencies } from "../../src/commands/context.js"
 import type { FluxerMessage } from "../../src/lib/fluxer/entities.js"
 import { MusicError } from "../../src/lib/music/musicService.js"
 import { MusicAccessError } from "../../src/lib/fluxer/access.js"
-import { musicServiceHarness } from "../test-support/musicServiceFakes.js"
+import { musicServiceHarness, musicTrack } from "../test-support/musicServiceFakes.js"
 
 function harness() {
     const actions: unknown[] = [],
@@ -25,6 +25,7 @@ function harness() {
                 if (unexpected) throw new Error("secret upstream URL")
                 return snapshot
             },
+            requiredAccess: () => ({ level: "control", channelId: undefined }),
         },
         playlists: {
             execute: async (_user, action) => {
@@ -238,6 +239,49 @@ test("queue index commands authorize before revealing whether an entry exists", 
     await h.send("!remove 1")
     assert.match(h.replies[0].body.content, /Manage Guild/)
     assert.equal(h.actions.length, 0)
+})
+
+test("remove and move on a restored session authorize queue access before reading indexes", async () => {
+    const service = musicServiceHarness()
+    service.service.restore({
+        guildId: "1",
+        voiceChannelId: "2",
+        textChannelId: "3",
+        snapshot: {
+            version: 2,
+            current: musicTrack("A"),
+            queue: [musicTrack("B")],
+            positionMs: 4000,
+            volume: 100,
+            repeatMode: "off",
+            paused: true,
+        },
+    })
+    const h = harness()
+    let authorized = false
+    const calls: { action: string; channelId?: string }[] = []
+    h.deps.music.requiredAccess = (guildId, action) =>
+        service.service.requiredAccess(guildId, action)
+    h.deps.music.snapshot = (guildId: string) => {
+        assert.equal(authorized, true)
+        return service.service.snapshot(guildId)
+    }
+    h.deps.music.execute = (actor, action) => service.service.execute(actor, action)
+    h.deps.access.authorizeMusic = async (_actor, action, channelId) => {
+        calls.push({ action, channelId })
+        if (action !== "queue") throw new MusicAccessError(403, "No active voice session")
+        authorized = true
+        return { guildId: "1", userId: "9", voiceChannelId: channelId ?? null }
+    }
+    await h.send("!remove 1", { authorId: "9" })
+    assert.deepEqual(calls, [{ action: "queue", channelId: "2" }])
+    assert.deepEqual(service.authorizations, [{ action: "queue", channelId: "2" }])
+    assert.equal(service.service.snapshot("1").queue.length, 0)
+    authorized = false
+    await h.send("!move 1 1", { authorId: "9" })
+    assert.deepEqual(calls[1], { action: "queue", channelId: "2" })
+    assert.match(h.replies.at(-1)!.body.content, /Queue entry not found/)
+    await service.service.shutdown()
 })
 
 test("unknown prefix commands outside the control channel are ignored, not answered", async () => {

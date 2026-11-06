@@ -33,15 +33,9 @@ export class NativeMusicConnections {
     private readonly sockets = new Set<SocketState>()
     private readonly pending = new Map<string, () => void>()
     private readonly unsubscribe: () => void
-    private readonly interval: ReturnType<typeof setInterval>
     private stopped = false
     constructor(private readonly dependencies: Dependencies) {
         this.unsubscribe = dependencies.music.subscribe((state) => this.invalidate(state.guildId))
-        this.interval = setInterval(() => {
-            for (const state of this.sockets)
-                for (const guild of state.subscriptions.keys()) this.invalidate(guild)
-        }, 15000)
-        this.interval.unref?.()
     }
     async add(
         socket: MusicSocket,
@@ -214,7 +208,7 @@ export class NativeMusicConnections {
         } catch (error) {
             if (state.subscriptions.get(guildId) !== generation) return
             if (error && typeof error === "object" && "status" in error && error.status === 503) {
-                // Withhold data until authority is available; the periodic check retries safely.
+                // Withhold data until the next music or access invalidation can retry.
                 this.send(state, {
                     type: "error",
                     code: "PLAYER_UNAVAILABLE",
@@ -234,7 +228,6 @@ export class NativeMusicConnections {
     stop(): void {
         this.stopped = true
         this.unsubscribe()
-        clearInterval(this.interval)
         for (const cancel of this.pending.values()) cancel()
         this.pending.clear()
         for (const state of this.sockets) {

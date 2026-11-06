@@ -41,3 +41,6 @@ downloads/
 
 # TypeScript incremental build info (web subproject)
 *.tsbuildinfo
+
+# Scratch reviews and other local notes
+docs/temp/
