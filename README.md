@@ -1,6 +1,6 @@
 # DimbyBot for Fluxer
 
-An independent Fluxer version of DimbyBot, focused on music. It has two applications: the **Bot** (`src/server.ts`) and the **Dashboard** (Next.js in `src/web/`). The Dashboard communicates with the Bot over HTTP and authenticated WebSockets. Shared contracts live in `src/shared/`.
+An independent Fluxer version of DimbyBot, focused on music. It has two applications: the **Bot** (`src/server.ts`) and the **Dashboard** (Next.js in `src/web/`). The Dashboard communicates with the Bot over HTTP and authenticated WebSockets. Shared contracts live in `src/shared/`. Source layout, containers, and health checks are in [the application layout](docs/application-layout.md).
 
 The Bot uses Fluxer's native REST/Gateway protocol and LiveKit voice grants. FFmpeg decodes prepared byte streams into PCM. Lavalink is a **metadata search service only**; it never owns a queue or a Fluxer voice session. Saved queues restore paused and require an authorized user to resume.
 
@@ -18,7 +18,7 @@ Countdowns, downloads/local-file playback, upload alerts, guild log forwarding, 
 
 Use Node 24+ and Yarn. Copy `.env.example` to **`.env.fluxer`** and configure it locally. This version does not load a Discord `.env` or generate `lavaNodesConfig.js`.
 
-Create a Fluxer application with a Bot, install it in a test server, and supply `FLUXER_BOT_TOKEN`, `FLUXER_CLIENT_ID`, and server-only `FLUXER_CLIENT_SECRET`. The configured instance origin is discovered through `/.well-known/fluxer`; API, Gateway, assets and authorization URLs follow that instance.
+Create a Fluxer application with a Bot, install it in a test server, and supply `FLUXER_BOT_TOKEN`, `FLUXER_CLIENT_ID`, and server-only `FLUXER_CLIENT_SECRET`. `FLUXER_INSTANCE_ORIGIN` defaults to `https://fluxer.com`; set it when the Bot should use another instance. That origin is discovered through `/.well-known/fluxer`; API, Gateway, assets and authorization URLs follow that instance. Dashboard sign-in requests the `identify`, `email`, and `guilds` scopes.
 
 For local Dashboard sign-in, register exactly:
 
@@ -47,9 +47,9 @@ In another terminal, start the Dashboard (its dev script loads the same `.env.fl
 yarn dev:web
 ```
 
-The example host ports are Dashboard `3000`, Bot API/WebSocket `3010`, PostgreSQL `5434`, metadata `2334`, and companion `8283`. The optional ignored `.env.fluxer.local` overlays generated host-only settings; both host applications load it consistently. The root Bot entrypoint loads the dedicated Fluxer files itself; Next can instead receive matching server environment variables or use its own local file based on `src/web/.env.example`.
+The example host ports are Dashboard `3000`, Bot API/WebSocket `3010`, PostgreSQL `5434`, metadata `2334`, and companion `8283`. With `WEBSOCKET_CLIENT_URL` unset, local live updates use `ws://localhost:3010/ws`. The Bot API listens on `127.0.0.1` (`BOT_API_HOST`; published containers use `BOT_API_PUBLISH_HOST`). Host playback uses the bundled `ffmpeg-static` binary unless `FFMPEG_PATH` is set. The optional ignored `.env.fluxer.local` overlays generated host-only settings; both host applications load it consistently. The root Bot entrypoint loads the dedicated Fluxer files itself; Next can instead receive matching server environment variables or use its own local file based on `src/web/.env.example`.
 
-The Bot applies Prisma migrations on startup. PostgreSQL is required; there is no fallback to a pre-existing default development database. Metadata readiness is checked before Bot startup. Companion failures are surfaced when a source is prepared. Start only one Bot process per application token.
+The Bot applies Prisma migrations on startup. PostgreSQL is required; there is no fallback to a pre-existing default development database. Metadata readiness is checked during startup, after migrations and before the Gateway connects. Companion failures are surfaced when a source is prepared. Start only one Bot process per application token. For a rebuilding Bot process, use `yarn dev` instead of `yarn build:bot` and `yarn start`.
 
 For container Bot development, `./dev-env.sh up` or the `yarn docker:dev:*` scripts use the dedicated environment and development override. Named volumes are retained by `down`. Use the explicit volume-removal command only when intentionally discarding this Fluxer development data.
 
@@ -63,7 +63,7 @@ The project is `dimbybot-fluxer`, with `fluxer-*` services, separate named volum
 
 Container entrypoints construct an encoded URL for the separate `fluxer-db` service from `POSTGRES_*`. `FLUXER_DOCKER_DATABASE_URL` is an optional explicit override for containers; the host's `DATABASE_URL` is not accidentally forwarded as `localhost` inside Docker.
 
-For production, use HTTPS and route **`/ws` on the Dashboard's cookie host** to the Bot, with `WEBSOCKET_CLIENT_URL=wss://your-dashboard-host/ws`. Session cookies authenticate upgrades; URL connect tokens are retired. Keep the Bot API behind the private network/reverse proxy. `/health` is process liveness; `/ready` reports Gateway readiness. The Dashboard status page probes its database and the Bot HTTP endpoint independently.
+For production, use HTTPS and route **`/ws` on the Dashboard's cookie host** to the Bot, with `WEBSOCKET_CLIENT_URL=wss://your-dashboard-host/ws`. Session cookies authenticate upgrades; URL connect tokens are retired. Keep the Bot API on a private address (`BOT_API_REQUIRE_PRIVATE_CLIENT_IP=1`). `/health` is process liveness; `/ready` reports Gateway readiness. The Dashboard status page probes its database and the Bot HTTP endpoint independently.
 
 CI validates both applications. Automatic image publication and remote deployment are disabled until this independent project is explicitly configured. No remote repository or production environment is provisioned by the conversion.
 
@@ -90,9 +90,9 @@ The default prefix is `!`; `BOT_COMMAND_PREFIX` changes it.
 !control-channel off
 ```
 
-Queue/playlist positions start at one. Playlist names containing spaces should be quoted. Stop clears music while retaining the connection; leave also disconnects. Queue clear preserves the current track. Configure a control channel with Manage Guild permission; ordinary text there queues a query, while unknown prefix commands show guidance. Bot messages, webhooks and DMs are ignored. Replies disable mentions.
+Queue/playlist positions start at one. Playlist names containing spaces should be quoted. Stop clears music while retaining the connection; leave also disconnects. Queue clear preserves the current track. Configure a control channel with Manage Guild permission. Ordinary text there queues a query, and an unknown prefix command there shows guidance. The same unknown command is ignored in other channels so the prefix can be shared. Bot messages, webhooks and DMs are ignored. Replies disable mentions.
 
-A controller must share the Bot's voice channel. To start a new session, join a voice channel first; multiple simultaneous voice connections require an explicit target through the API. Give the Bot View Channel, Connect and Speak permissions in that voice channel, and View Channel, Send Messages and Embed Links in its control channel. Permission loss or an empty channel suspends playback and retains a paused queue.
+A controller must share the Bot's voice channel. To start a new session, join a voice channel first; multiple simultaneous voice connections require an explicit target through the API. Give the Bot View Channel, Connect and Speak permissions in that voice channel, and View Channel, Send Messages and Embed Links in its control channel. Permission loss suspends playback immediately and retains a paused queue. An empty voice channel does the same after two minutes.
 
 ## Validation and troubleshooting
 
@@ -107,6 +107,6 @@ yarn build:web
 
 The root compiler excludes `src/web/`; building the Bot does not emit the Dashboard. Unit tests use Node's test runner and tsx under `tests/`; Dashboard tests are under `tests/web/`.
 
-See [native music smoke tests](docs/fluxer-music-smoke.md), [the architecture decision](docs/adr/0010-fluxer-native-music.md), and [the glossary](GLOSSARY.md). A successful unit suite does not establish audible playback: the real tone/pause/resume/leave probe must be confirmed by a listener. Sign-in errors should be diagnosed without printing cookies, grants, authorization codes or OAuth tokens. A Dashboard “Bot API unreachable” notice means its configured Bot HTTP listener is unavailable, even if OAuth succeeded.
+See [the application layout](docs/application-layout.md), [native music smoke tests](docs/fluxer-music-smoke.md), [the architecture decision](docs/adr/0010-fluxer-native-music.md), and [the glossary](GLOSSARY.md). A successful unit suite does not establish audible playback. Run `yarn smoke:fluxer-voice` for the tone/pause/resume/leave probe; a listener must confirm the sound. Sign-in errors should be diagnosed without printing cookies, grants, authorization codes or OAuth tokens. A Dashboard “Bot API unreachable” notice means its configured Bot HTTP listener is unavailable, even if OAuth succeeded.
 
 Search and catalog availability also depend on upstream YouTube/Spotify behavior and metadata/companion services. A failed source is skipped once; unsupported or unreadable persisted session versions are left intact. Encrypted voice configurations are implemented and unit-covered; verify an encrypted channel separately if your instance requires it.
