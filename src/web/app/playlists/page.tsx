@@ -1,7 +1,7 @@
 import Link from "next/link"
-import { getPlaylistsAction } from "@/lib/actions/playlist.actions"
+import { getPlaylistsAction } from "@/server/playlists.actions"
 import { CreatePlaylistForm } from "@/components/CreatePlaylistForm"
-import { PlaylistDiscordHelp } from "@/components/PlaylistDiscordHelp"
+import { PlaylistFluxerHelp } from "@/components/PlaylistFluxerHelp"
 import { formatDurationMs } from "@/lib/format-duration"
 
 export const dynamic = "force-dynamic"
@@ -14,7 +14,7 @@ export default async function PlaylistsPage() {
             <div>
                 <h1 className="text-2xl font-semibold">Your Playlists</h1>
                 <p className="text-sm text-muted-foreground">
-                    Personal playlists follow your Discord account across servers.
+                    Personal playlists follow your Fluxer account across servers.
                 </p>
             </div>
 
@@ -23,7 +23,7 @@ export default async function PlaylistsPage() {
                 <CreatePlaylistForm />
             </section>
 
-            <PlaylistDiscordHelp />
+            <PlaylistFluxerHelp />
 
             {result.ok === false ? (
                 <div className="rounded border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
@@ -33,7 +33,7 @@ export default async function PlaylistsPage() {
                 <div className="rounded border bg-card p-4 text-card-foreground">
                     <p>You do not have any playlists yet. Create one above or use</p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                        <code className="rounded bg-muted px-1">/playlist create</code> in Discord.
+                        <code className="rounded bg-muted px-1">!playlist create</code> in Fluxer.
                     </p>
                 </div>
             ) : (

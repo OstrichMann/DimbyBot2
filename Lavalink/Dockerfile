@@ -1,17 +1,11 @@
 # Use an appropriate base image with Java (e.g., OpenJDK JRE)
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:17-jre-jammy
 
 WORKDIR /app
 
-# Install required system libraries and utilities
-# eudev-libs: satisfies OSHI/LinuxOperatingSystem’s libudev probe (harmless if missing for Lavalink itself).
-# Unpinned: resolve to current Alpine repo revisions for this JRE image (Java major stays on 17 via the base image tag).
-RUN apk add --no-cache \
-    libgcc \
-    gcompat \
-    dos2unix \
-    curl \
-    eudev-libs
+# Debian/Ubuntu Java images include arm64; the old Alpine JRE tag was amd64-only.
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates dos2unix libudev1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Pin Lavalink version for reproducible builds; override at build time, e.g.:
 #   docker build --build-arg LAVALINK_VERSION=4.2.1 -f Lavalink/Dockerfile Lavalink

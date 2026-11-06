@@ -69,14 +69,14 @@ export default async function HomePage({
 
     return (
         <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center px-6 text-center">
-            <h1 className="text-3xl font-bold">DimbyBot Dashboard</h1>
+            <h1 className="text-3xl font-bold">DimbyBot Fluxer Dashboard</h1>
             <p className="mt-2 text-muted-foreground">
-                Sign in with Discord to control music playback.
+                Sign in with Fluxer to control music playback.
             </p>
             <p className="mt-2 max-w-md text-sm text-muted-foreground">
                 You&apos;ll be redirected to{" "}
-                <strong className="text-foreground">discord.com</strong> to authorize DimbyBot. This
-                app never sees your Discord password.
+                <strong className="text-foreground">your Fluxer instance</strong> to authorize
+                DimbyBot. This app never sees your Fluxer password.
             </p>
             <p className="mt-1 font-mono text-xs text-muted-foreground">{publicOrigin}</p>
             {sessionReadError ? (

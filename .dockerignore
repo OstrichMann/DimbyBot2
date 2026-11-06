@@ -1,6 +1,7 @@
 # Git specific
 .git
 .gitignore
+.superpowers/
 
 # Node specific
 node_modules
@@ -39,3 +40,7 @@ lavaNodesConfig.js
 
 # Don't include Lavalink build context in bot build context
 Lavalink/
+
+legacy/
+**/.env
+**/.env.*

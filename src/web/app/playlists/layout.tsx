@@ -2,7 +2,6 @@ import type { ReactNode } from "react"
 import Link from "next/link"
 import { redirect } from "next/navigation"
 import { readSessionSafe } from "@/server/auth-session"
-import { canAccessAdmin } from "@/lib/admin-access"
 import { DashboardInviteLink } from "@/components/DashboardInviteLink"
 import { ServiceDegraded } from "@/components/ServiceDegraded"
 import { GoToNowPlayingButton } from "@/components/GoToNowPlayingButton"
@@ -45,7 +44,7 @@ export default async function PlaylistsLayout({ children }: { children: ReactNod
         redirect("/")
     }
 
-    const showAdminLink = await canAccessAdmin()
+    const showAdminLink = false
 
     return (
         <div className="min-h-screen bg-background text-foreground">

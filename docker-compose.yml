@@ -1,186 +1,125 @@
-# Production / CI deploy: compose project is usually the host directory name (e.g. `bot` under /home/bot).
-# Bot HTTP + WebSocket on BOT_API_PORT: host bind is BOT_API_HOST (default 127.0.0.1). Set BOT_API_HOST=0.0.0.0 or a
-# private NIC IP so an off-box LAN reverse proxy can reach <host>:<BOT_API_PORT>. `dimbybot-web` still uses http://dimbybot:${BOT_API_PORT} on `internal`.
-# With BOT_API_REQUIRE_PRIVATE_CLIENT_IP=1 (default), the bot rejects non–private-LAN TCP peers (RFC1918 + 127/8 + ::1).
+name: dimbybot-fluxer
+
 services:
-    lavalink:
-        image: ${LAVALINK_IMAGE}
-        container_name: lavalink
+    fluxer-db:
+        image: postgres:18-alpine
         restart: unless-stopped
         environment:
-            # These will be picked up by Lavalink/entrypoint.sh
-            - LAVALINK_PORT=${LAVALINK_PORT}
-            - LAVALINK_PASSWORD=${LAVALINK_PASSWORD}
-            - LAVALINK_YOUTUBE_POT_TOKEN=${LAVALINK_YOUTUBE_POT_TOKEN}
-            - LAVALINK_YOUTUBE_POT_VISITORDATA=${LAVALINK_YOUTUBE_POT_VISITORDATA}
-            - LAVALINK_YOUTUBE_CIPHER_URL=${LAVALINK_YOUTUBE_CIPHER_URL:-http://yt-cipher:8001}
-            - LAVALINK_YOUTUBE_CIPHER_PASSWORD=${LAVALINK_YOUTUBE_CIPHER_PASSWORD:-dimbybot-dev-cipher}
-            - LAVALINK_YOUTUBE_OAUTH_ENABLED=${LAVALINK_YOUTUBE_OAUTH_ENABLED:-}
-            - LAVALINK_YOUTUBE_OAUTH_REFRESH_TOKEN=${LAVALINK_YOUTUBE_OAUTH_REFRESH_TOKEN:-}
-            - LAVALINK_SPOTIFY_ENABLED=${LAVALINK_SPOTIFY_ENABLED}
-            - LAVALINK_SPOTIFY_CLIENT_ID=${LAVALINK_SPOTIFY_CLIENT_ID}
-            - LAVALINK_SPOTIFY_CLIENT_SECRET=${LAVALINK_SPOTIFY_CLIENT_SECRET}
-            - LAVALINK_SPOTIFY_COUNTRY_CODE=${LAVALINK_SPOTIFY_COUNTRY_CODE}
-            - LAVALINK_SPOTIFY_PLAYLIST_LOAD_LIMIT=${LAVALINK_SPOTIFY_PLAYLIST_LOAD_LIMIT}
-            - LAVALINK_SPOTIFY_ALBUM_LOAD_LIMIT=${LAVALINK_SPOTIFY_ALBUM_LOAD_LIMIT}
-        ports:
-            - "${LAVALINK_PORT}:${LAVALINK_PORT}" # Map host port to container port
-        # JVM + Maven plugin load can exceed 15s on container recreate; allow ~160s before unhealthy.
-        healthcheck:
-            test: ["CMD", "/bin/sh", "/app/healthcheck.sh"]
-            interval: 10s
-            timeout: 5s
-            retries: 10
-            start_period: 60s
+            POSTGRES_DB: ${POSTGRES_DB:-dimbybot_fluxer}
+            POSTGRES_USER: ${POSTGRES_USER:-fluxer}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a fresh POSTGRES_PASSWORD}
         volumes:
-            - lavalink-plugins:/app/plugins
-            - dimbybot-downloads:/app/downloads
-        networks:
-            - internal
-        depends_on:
-            - spotify-tokener
-            - yt-cipher
-            - invidious-companion
+            - fluxer-postgres:/var/lib/postgresql
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+            interval: 5s
+            timeout: 5s
+            retries: 20
+        networks: [fluxer-internal]
 
-    invidious-companion:
-        # Pinned multi-arch manifest digest — refresh with: docker buildx imagetools inspect quay.io/invidious/invidious-companion:latest --format "{{json .Manifest.Digest}}"
+    fluxer-companion:
         image: quay.io/invidious/invidious-companion@sha256:298cad3da121cc6ee290f00e6cc02a64feb36085097a3bba03d88eaa31d4dafd
-        container_name: invidious-companion
         restart: unless-stopped
         environment:
-            # Default bind is 127.0.0.1; other compose services cannot reach that.
-            - HOST=0.0.0.0
-            - PORT=8282
-            - SERVER_SECRET_KEY=${INVIDIOUS_COMPANION_KEY:-changemechangeme}
-            - SERVER_BASE_URL=${INVIDIOUS_COMPANION_URL:-http://invidious-companion:8282}
+            HOST: 0.0.0.0
+            PORT: 8282
+            SERVER_SECRET_KEY: ${INVIDIOUS_COMPANION_KEY:?Set a fresh INVIDIOUS_COMPANION_KEY}
+            SERVER_BASE_URL: http://fluxer-companion:8282
         volumes:
-            - invidious-companion-cache:/var/tmp/youtubei.js
-        networks:
-            - internal
+            - fluxer-companion-cache:/var/tmp/youtubei.js
+        networks: [fluxer-internal]
 
-    yt-cipher:
-        # Pinned multi-arch manifest digest (replaces a floating tag) — refresh with: docker buildx imagetools inspect ghcr.io/kikkia/yt-cipher:master --format "{{json .Manifest.Digest}}"
+    fluxer-cipher:
         image: ghcr.io/kikkia/yt-cipher@sha256:4c5ec381ff57336cfc24822d2b526a5ad7cd0171f61065a1bbc87bb736842449
-        container_name: yt-cipher
         restart: unless-stopped
         environment:
-            - OVERRIDE_PLAYER_VARIANT=IAS
-            - API_TOKEN=${LAVALINK_YOUTUBE_CIPHER_PASSWORD:-dimbybot-dev-cipher}
-        networks:
-            - internal
+            OVERRIDE_PLAYER_VARIANT: IAS
+            API_TOKEN: ${LAVALINK_YOUTUBE_CIPHER_PASSWORD:?Set a fresh cipher password}
+        networks: [fluxer-internal]
 
-    spotify-tokener:
-        # Pinned multi-arch manifest digest (replaces a floating tag) — refresh with: docker buildx imagetools inspect ghcr.io/topi314/spotify-tokener:latest --format "{{json .Manifest.Digest}}"
+    fluxer-spotify-tokener:
         image: ghcr.io/topi314/spotify-tokener@sha256:7841fa6144bd27b75b3ffc5d89c8201f833e0b9e2d3e8b4d5af8371504fd43f8
-        container_name: spotify-tokener
         restart: unless-stopped
-        networks:
-            - internal
+        networks: [fluxer-internal]
 
-    postgres-db:
-        image: postgres:15
-        container_name: postgres-db
+    fluxer-metadata:
+        build:
+            context: ./Lavalink
+        image: ${LAVALINK_IMAGE:-dimbybot-fluxer-metadata:local}
         restart: unless-stopped
         environment:
-            - POSTGRES_DB=${POSTGRES_DB}
-            - POSTGRES_USER=${POSTGRES_USER}
-            - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            LAVALINK_PORT: 2333
+            LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:?Set a fresh metadata password}
+            LAVALINK_YOUTUBE_CIPHER_URL: http://fluxer-cipher:8001
+            LAVALINK_YOUTUBE_CIPHER_PASSWORD: ${LAVALINK_YOUTUBE_CIPHER_PASSWORD}
+            LAVALINK_YOUTUBE_POT_TOKEN: ${LAVALINK_YOUTUBE_POT_TOKEN:-}
+            LAVALINK_YOUTUBE_POT_VISITORDATA: ${LAVALINK_YOUTUBE_POT_VISITORDATA:-}
+            LAVALINK_SPOTIFY_ENABLED: ${LAVALINK_SPOTIFY_ENABLED:-true}
+            LAVALINK_SPOTIFY_CLIENT_ID: ${LAVALINK_SPOTIFY_CLIENT_ID:-}
+            LAVALINK_SPOTIFY_CLIENT_SECRET: ${LAVALINK_SPOTIFY_CLIENT_SECRET:-}
+            LAVALINK_SPOTIFY_COUNTRY_CODE: ${LAVALINK_SPOTIFY_COUNTRY_CODE:-US}
+            LAVALINK_SPOTIFY_PLAYLIST_LOAD_LIMIT: ${LAVALINK_SPOTIFY_PLAYLIST_LOAD_LIMIT:-6}
+            LAVALINK_SPOTIFY_ALBUM_LOAD_LIMIT: ${LAVALINK_SPOTIFY_ALBUM_LOAD_LIMIT:-6}
         volumes:
-            - postgres-data:/var/lib/postgresql/data
-        healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-            interval: 10s
-            timeout: 5s
-            retries: 10
-        networks:
-            - internal
-
-    dimbybot:
-        image: ${BOT_IMAGE}
-        container_name: dimbybot
-        restart: unless-stopped
-        depends_on:
-            lavalink:
-                condition: service_healthy # Wait for lavalink to pass its health check
-            postgres-db:
-                condition: service_healthy
-            invidious-companion:
-                condition: service_started
-        environment:
-            - NODE_ENV=production
-            # These will be picked up by entrypoint.sh for lavaNodesConfig.js
-            - LAVALINK_HOST=lavalink # Service name in this compose file
-            - LAVALINK_PORT=${LAVALINK_PORT}
-            - LAVALINK_PASSWORD=${LAVALINK_PASSWORD}
-            - LAVALINK_NODE_ID=${LAVALINK_NODE_ID}
-            - LAVALINK_SECURE=${LAVALINK_SECURE}
-            # Pass other bot-specific env vars from .env
-            - BOT_TOKEN=${BOT_TOKEN}
-            - CLIENT_ID=${CLIENT_ID}
-            - GUILD_ID=${GUILD_ID}
-            - OWNER_ID=${OWNER_ID}
-            - DEV_MODE=${DEV_MODE}
-            - LOG_LEVEL=${LOG_LEVEL}
-            - BOT_API_VERBOSE=${BOT_API_VERBOSE:-}
-            - WEB_BOT_API_VERBOSE=${WEB_BOT_API_VERBOSE:-}
-            - BOT_API_PORT=${BOT_API_PORT:-3001}
-            - BOT_API_REQUIRE_PRIVATE_CLIENT_IP=${BOT_API_REQUIRE_PRIVATE_CLIENT_IP:-1}
-            # Optional absolute player WebSocket URL (ws/wss) for the dashboard container; see docker-compose.dashboard.yml.
-            - WEBSOCKET_CLIENT_URL=${WEBSOCKET_CLIENT_URL:-}
-            # Session verification for dashboard → bot API. The Next container (docker-compose.dashboard.yml) needs the same auth secrets.
-            - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
-            - BETTER_AUTH_URL=${BETTER_AUTH_URL}
-            - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET}
-            - EMAIL_PASS=${EMAIL_PASS}
-            - EMAIL_USER=${EMAIL_USER}
-            - FEEDBACK_EMAIL=${FEEDBACK_EMAIL}
-            # Spotify Web API for autoplay (same credentials as Lavalink Spotify plugin; optional SPOTIFY_* overrides)
-            - LAVALINK_SPOTIFY_CLIENT_ID=${LAVALINK_SPOTIFY_CLIENT_ID}
-            - LAVALINK_SPOTIFY_CLIENT_SECRET=${LAVALINK_SPOTIFY_CLIENT_SECRET}
-            - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
-            - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
-            # MusicBrainz autoplay fallback: requires MUSICBRAINZ_CONTACT or MUSICBRAINZ_CONTACT_URL in .env; SIMILAR defaults to off (see src/util/musicBrainzSimilarService.ts).
-            - MUSICBRAINZ_CONTACT=${MUSICBRAINZ_CONTACT}
-            - MUSICBRAINZ_CONTACT_URL=${MUSICBRAINZ_CONTACT_URL}
-            - MUSICBRAINZ_SIMILAR=${MUSICBRAINZ_SIMILAR:-off}
-            # invidious-companion: YouTube stream URLs for Lavalink HTTP playback (search still uses youtube-source).
-            - INVIDIOUS_COMPANION_URL=${INVIDIOUS_COMPANION_URL:-http://invidious-companion:8282}
-            - INVIDIOUS_COMPANION_KEY=${INVIDIOUS_COMPANION_KEY:-changemechangeme}
-            - YOUTUBE_PUBSUB_CALLBACK_URL=${YOUTUBE_PUBSUB_CALLBACK_URL:-}
-            - YOUTUBE_PUBSUB_HUB_SECRET=${YOUTUBE_PUBSUB_HUB_SECRET:-}
-            - YOUTUBE_DATA_API_KEY=${YOUTUBE_DATA_API_KEY:-}
-            # Prefer DATABASE_URL from project .env (password URL-encoded). Fallback builds from POSTGRES_*.
-            - DATABASE_URL=${DATABASE_URL:-postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-db:5432/${POSTGRES_DB}}
-        # Named volumes: persist across `compose up`/`down` (no -v). CI deploy uses this file only;
-        # docker-compose.dev.yml binds ./storage for local dev and is not shipped to production.
-        volumes:
-            - dimbybot-storage:/app/storage
-            - dimbybot-logs:/app/logs
-            - dimbybot-downloads:/app/downloads
-        # Bot API + WebSocket on BOT_API_PORT — host bind BOT_API_HOST (default 127.0.0.1); set BOT_API_HOST for LAN-only listeners.
-        # Pair with BOT_API_REQUIRE_PRIVATE_CLIENT_IP=1 (default) and host firewall rules so only RFC1918 sources reach the port.
-        ports:
-            - "${BOT_API_HOST:-127.0.0.1}:${BOT_API_PORT:-3001}:${BOT_API_PORT:-3001}"
-        # Explicit healthcheck so dimbybot-web `depends_on: service_healthy` waits for the bot API (matches Dockerfile).
+            - fluxer-metadata-plugins:/app/plugins
         healthcheck:
             test: ["CMD", "/bin/sh", "/app/healthcheck.sh"]
-            interval: 30s
+            interval: 10s
             timeout: 5s
-            retries: 3
-            start_period: 120s
-        networks:
-            - internal
+            retries: 12
+            start_period: 60s
+        depends_on:
+            fluxer-cipher:
+                condition: service_started
+            fluxer-spotify-tokener:
+                condition: service_started
+        networks: [fluxer-internal]
 
-networks:
-    internal:
-        driver: bridge
+    fluxer-bot:
+        build:
+            context: .
+        image: ${BOT_IMAGE:-dimbybot-fluxer-bot:local}
+        restart: unless-stopped
+        environment:
+            NODE_ENV: production
+            FLUXER_INSTANCE_ORIGIN: ${FLUXER_INSTANCE_ORIGIN:-https://fluxer.com}
+            FLUXER_BOT_TOKEN: ${FLUXER_BOT_TOKEN:?Set FLUXER_BOT_TOKEN}
+            FLUXER_CLIENT_ID: ${FLUXER_CLIENT_ID:?Set FLUXER_CLIENT_ID}
+            FLUXER_CLIENT_SECRET: ${FLUXER_CLIENT_SECRET:?Set FLUXER_CLIENT_SECRET}
+            BOT_COMMAND_PREFIX: ${BOT_COMMAND_PREFIX:-!}
+            BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+            BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set a fresh BETTER_AUTH_SECRET}
+            DATABASE_URL: ${FLUXER_DOCKER_DATABASE_URL:-}
+            POSTGRES_INTERNAL_HOST: fluxer-db
+            POSTGRES_DB: ${POSTGRES_DB:-dimbybot_fluxer}
+            POSTGRES_USER: ${POSTGRES_USER:-fluxer}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+            LAVALINK_ORIGIN: http://fluxer-metadata:2333
+            LAVALINK_PASSWORD: ${LAVALINK_PASSWORD}
+            INVIDIOUS_COMPANION_URL: http://fluxer-companion:8282
+            INVIDIOUS_COMPANION_KEY: ${INVIDIOUS_COMPANION_KEY}
+            BOT_API_HOST: 0.0.0.0
+            BOT_API_PORT: 3010
+            BOT_API_REQUIRE_PRIVATE_CLIENT_IP: "1"
+        ports:
+            - "${BOT_API_PUBLISH_HOST:-127.0.0.1}:${BOT_API_PORT:-3010}:3010"
+        volumes:
+            - fluxer-storage:/app/storage
+        depends_on:
+            fluxer-db:
+                condition: service_healthy
+            fluxer-metadata:
+                condition: service_healthy
+            fluxer-companion:
+                condition: service_started
+        networks: [fluxer-internal]
 
 volumes:
-    dimbybot-storage: {} # Define the new named volume for bot storage
-    dimbybot-logs: {} # Define the new named volume for bot logs
-    dimbybot-downloads: {} # Define the new named volume for downloaded music files
-    # After bumping plugin versions in Lavalink/entrypoint.sh, recreate this volume if the old JAR still loads:
-    # docker volume rm <compose-project>_lavalink-plugins
-    lavalink-plugins: {} # Define the new named volume for lavalink plugins
-    invidious-companion-cache: {} # youtubei.js cache for invidious-companion
-    postgres-data: {}
+    fluxer-postgres:
+    fluxer-storage:
+    fluxer-metadata-plugins:
+    fluxer-companion-cache:
+
+networks:
+    fluxer-internal:
+        driver: bridge

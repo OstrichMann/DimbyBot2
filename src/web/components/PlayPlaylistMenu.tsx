@@ -1,158 +1,81 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import { toast } from "sonner"
-import { getPlaylistsAction, playPlaylistInGuildAction } from "@/lib/actions/playlist.actions"
-import { Button } from "@/components/ui/button"
+import { useState } from "react"
 import type { PlaylistSummary } from "@/types/web"
-
-interface PlayPlaylistMenuProps {
-    guildId: string
-    requesterDiscordUserId: string | undefined
-    disabled?: boolean
-    onQueued?: () => void
-}
+import { getPlaylistsAction, playPlaylistInGuildAction } from "@/server/playlists.actions"
 
 export function PlayPlaylistMenu({
     guildId,
-    requesterDiscordUserId,
-    disabled = false,
+    revision,
+    disabled,
     onQueued,
-}: PlayPlaylistMenuProps) {
+}: {
+    guildId: string
+    revision?: number
+    disabled?: boolean
+    onQueued?: () => void
+}) {
+    const [lists, setLists] = useState<PlaylistSummary[]>([])
     const [open, setOpen] = useState(false)
-    const [shuffle, setShuffle] = useState(false)
-    const [playlists, setPlaylists] = useState<PlaylistSummary[] | null>(null)
-    const [loading, setLoading] = useState(false)
     const [busy, setBusy] = useState(false)
-    const rootRef = useRef<HTMLDivElement>(null)
-
-    useEffect(() => {
-        if (!open) return
-        let cancelled = false
-        setLoading(true)
-        void (async () => {
-            try {
-                const result = await getPlaylistsAction()
-                if (cancelled) return
-                if (result.ok === true) {
-                    setPlaylists(result.data.playlists)
-                } else {
-                    toast.error(result.error)
-                    setPlaylists([])
-                }
-            } catch (error: unknown) {
-                if (cancelled) return
-                const message = error instanceof Error ? error.message : "Failed to load playlists."
-                toast.error(message)
-                setPlaylists([])
-            } finally {
-                if (!cancelled) {
-                    setLoading(false)
-                }
-            }
-        })()
-        return () => {
-            cancelled = true
-        }
-    }, [open])
-
-    useEffect(() => {
-        if (!open) return
-        const onPointerDown = (event: MouseEvent) => {
-            if (!rootRef.current?.contains(event.target as Node)) {
-                setOpen(false)
-            }
-        }
-        document.addEventListener("mousedown", onPointerDown)
-        return () => document.removeEventListener("mousedown", onPointerDown)
-    }, [open])
-
-    const playPlaylist = async (playlist: PlaylistSummary) => {
-        const requesterId = requesterDiscordUserId?.trim()
-        if (!requesterId) {
-            toast.error("Missing Discord user id. Refresh or sign in again.")
-            return
-        }
-        if (playlist.trackCount === 0) {
-            toast.error(`"${playlist.name}" is empty.`)
-            return
-        }
-        setBusy(true)
-        const loadingToastId = toast.loading(
-            `Loading "${playlist.name}" (${playlist.trackCount} track${playlist.trackCount === 1 ? "" : "s"})…`
-        )
-        try {
-            const result = await playPlaylistInGuildAction(
-                guildId,
-                playlist.id,
-                requesterId,
-                shuffle
-            )
-            if (result.ok === false) {
-                toast.error(result.error)
-                return
-            }
-            const failNote =
-                result.data.failed > 0 ? ` (${result.data.failed} could not be resolved)` : ""
-            toast.success(
-                `Queued ${result.data.queued} from "${result.data.playlistName}"${failNote}`
-            )
-            setOpen(false)
-            onQueued?.()
-        } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : String(error)
-            toast.error(message || "Failed to queue playlist.")
-        } finally {
-            toast.dismiss(loadingToastId)
-            setBusy(false)
-        }
-    }
-
+    const [error, setError] = useState<string | null>(null)
     return (
-        <div ref={rootRef} className="relative inline-block">
-            <Button
+        <div className="space-y-2">
+            <button
                 type="button"
-                variant="outline"
-                size="sm"
                 disabled={disabled || busy}
-                onClick={() => setOpen((v) => !v)}
+                className="rounded border px-3 py-2 text-sm disabled:opacity-40"
+                onClick={() => {
+                    setBusy(true)
+                    setError(null)
+                    void getPlaylistsAction()
+                        .then((result) => {
+                            if (result.ok === true) {
+                                setLists(result.data.playlists)
+                                setOpen(true)
+                            } else setError(result.error)
+                        })
+                        .finally(() => setBusy(false))
+                }}
             >
-                Load playlist
-            </Button>
+                Queue a playlist
+            </button>
             {open ? (
-                <div className="absolute right-0 z-50 mt-1 min-w-[14rem] rounded border bg-popover p-2 text-popover-foreground shadow-md">
-                    <label className="mb-2 flex items-center gap-2 px-1 text-sm">
-                        <input
-                            type="checkbox"
-                            checked={shuffle}
-                            onChange={(e) => setShuffle(e.target.checked)}
-                            disabled={busy}
-                        />
-                        Shuffle
-                    </label>
-                    {loading ? (
-                        <p className="px-2 py-1.5 text-sm text-muted-foreground">Loading…</p>
-                    ) : (playlists ?? []).length === 0 ? (
-                        <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                            No playlists yet.
-                        </p>
-                    ) : (
-                        (playlists ?? []).map((p) => (
+                <div className="flex flex-wrap gap-2">
+                    {lists.length ? (
+                        lists.map((list) => (
                             <button
-                                key={p.id}
                                 type="button"
-                                className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
-                                disabled={busy}
+                                className="rounded border px-3 py-2 text-sm disabled:opacity-40"
+                                disabled={disabled || busy || !list.trackCount}
+                                key={list.id}
                                 onClick={() => {
-                                    void playPlaylist(p)
+                                    setBusy(true)
+                                    setError(null)
+                                    void playPlaylistInGuildAction(guildId, list.id, revision)
+                                        .then((result) => {
+                                            if (result.ok === true) {
+                                                setOpen(false)
+                                                onQueued?.()
+                                            } else setError(result.error)
+                                        })
+                                        .finally(() => setBusy(false))
                                 }}
                             >
-                                {p.name}
-                                <span className="ml-1 text-muted-foreground">({p.trackCount})</span>
+                                {list.name} ({list.trackCount})
                             </button>
                         ))
+                    ) : (
+                        <p className="text-sm text-muted-foreground">
+                            Create a playlist on the Playlists page first.
+                        </p>
                     )}
                 </div>
+            ) : null}
+            {error ? (
+                <p role="alert" className="text-sm text-destructive">
+                    {error}
+                </p>
             ) : null}
         </div>
     )

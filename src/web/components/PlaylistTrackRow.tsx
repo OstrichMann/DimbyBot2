@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { DragEvent, FocusEvent } from "react"
@@ -129,7 +129,8 @@ export function PlaylistTrackRow({
             className={cn(
                 "flex items-start gap-2 rounded border bg-background p-2 transition-colors",
                 isDragging && "opacity-50",
-                isDropTarget && "border-primary ring-2 ring-ring ring-offset-2 ring-offset-background"
+                isDropTarget &&
+                    "border-primary ring-2 ring-ring ring-offset-2 ring-offset-background"
             )}
             onMouseMove={(event) => scheduleAnchorUpdate(event.clientX, event.clientY)}
             onMouseLeave={() => {
@@ -199,7 +200,9 @@ export function PlaylistTrackRow({
                             </p>
                             <p className="text-muted-foreground">Artist: {track.author}</p>
                             {safeTrackUrl ? (
-                                <p className="truncate text-muted-foreground">Source: {safeTrackUrl}</p>
+                                <p className="truncate text-muted-foreground">
+                                    Source: {safeTrackUrl}
+                                </p>
                             ) : null}
                         </div>
                     </div>

@@ -1,5 +1,5 @@
 import type { GuildListItem, GuildListPlayerSummary } from "../types/web.js"
-import { normalizeOptionalDiscordSnowflake } from "./discord-snowflake.js"
+import { isFluxerId } from "./fluxer-user-id.js"
 
 /** Parses a loose player summary from API JSON; rejects invalid status/queueCount. */
 export function parseGuildListPlayerSummary(raw: unknown): GuildListPlayerSummary | null {
@@ -39,7 +39,7 @@ export function parseSafeGuildListItem(entry: unknown): GuildListItem | null {
     const name = g.name.trim()
     const idRaw = g.id
     if (typeof idRaw !== "string") return null
-    const idStr = normalizeOptionalDiscordSnowflake(idRaw)
+    const idStr = isFluxerId(idRaw.trim()) ? idRaw.trim() : null
     if (idStr === null) return null
     const iconRaw = g.iconUrl
     const iconUrl = typeof iconRaw === "string" ? iconRaw.trim() : null
@@ -50,10 +50,13 @@ export function parseSafeGuildListItem(entry: unknown): GuildListItem | null {
     return { id: idStr, name, iconUrl, memberCount, player }
 }
 
-/** Allow only Discord CDN hosts for next/image guild icons (blocks javascript:/data: etc.). */
+/** Browser-loaded instance assets allow HTTP(S), without credentials or executable URL schemes. */
 export function isValidGuildIconUrl(url: string | null | undefined): url is string {
-    if (typeof url !== "string") return false
-    const trimmed = url.trim()
-    if (!trimmed) return false
-    return /^https:\/\/(?:cdn\.discordapp\.com|images\.discordapp\.net)(?:\/|$)/i.test(trimmed)
+    if (typeof url !== "string" || !url.trim()) return false
+    try {
+        const parsed = new URL(url)
+        return ["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password
+    } catch {
+        return false
+    }
 }

@@ -3,7 +3,6 @@ import { getWebPrismaClient } from "@/lib/prisma"
 import type { StatusPayload } from "@/types/web"
 import { getBotApiOrigin } from "@/server/bot-api-origin"
 import { isBotApiVerbose, logBotApiVerbose } from "@/server/bot-api-verbose"
-import { tryGetBotClient } from "@/lib/botClient"
 import {
     DATABASE_PROBE_UNREACHABLE,
     mapBotApiOriginProbeMessage,
@@ -54,85 +53,75 @@ export async function getServiceStatusPayload(): Promise<StatusPayload> {
         }
     }
 
-    if (tryGetBotClient()) {
-        botApi.ok = true
-        logBotApiVerbose(
-            "getServiceStatusPayload: in-process bot client present; skipping /health probe"
-        )
-    } else {
-        let origin: string | null = null
+    let origin: string | null = null
+    try {
+        origin = getBotApiOrigin()
+    } catch (e) {
+        botApi.message = mapBotApiOriginProbeMessage("invalid_parse")
+        console.error("[service-status] API_PROXY_TARGET parse failed", sanitizeError(e))
+    }
+    if (!origin && !botApi.message) {
+        botApi.message = mapBotApiOriginProbeMessage("unset")
+        logBotApiVerbose("getServiceStatusPayload: bot probe skipped (no origin)")
+    } else if (origin) {
+        let healthUrl = ""
+        let healthTarget: { host: string; pathname: string } | undefined
         try {
-            origin = getBotApiOrigin()
+            const parsed = new URL("/health", origin)
+            healthUrl = parsed.toString()
+            healthTarget = { host: parsed.host, pathname: parsed.pathname }
         } catch (e) {
-            botApi.message = mapBotApiOriginProbeMessage("invalid_parse")
-            console.error("[service-status] API_PROXY_TARGET parse failed", sanitizeError(e))
+            botApi.message = mapBotApiOriginProbeMessage("invalid_origin")
+            console.error(
+                "[service-status] Invalid bot API origin for /health URL",
+                sanitizeError(e)
+            )
+            logBotApiVerbose("getServiceStatusPayload: bot probe skipped (invalid origin)")
         }
-        if (!origin && !botApi.message) {
-            botApi.message = mapBotApiOriginProbeMessage("unset")
-            logBotApiVerbose("getServiceStatusPayload: bot probe skipped (no origin)")
-        } else if (origin) {
-            let healthUrl = ""
-            let healthTarget: { host: string; pathname: string } | undefined
-            try {
-                const parsed = new URL("/health", origin)
-                healthUrl = parsed.toString()
-                healthTarget = { host: parsed.host, pathname: parsed.pathname }
-            } catch (e) {
-                botApi.message = mapBotApiOriginProbeMessage("invalid_origin")
-                console.error(
-                    "[service-status] Invalid bot API origin for /health URL",
-                    sanitizeError(e)
-                )
-                logBotApiVerbose("getServiceStatusPayload: bot probe skipped (invalid origin)")
+        if (healthUrl) {
+            const started = Date.now()
+            if (isBotApiVerbose()) {
+                logBotApiVerbose("getServiceStatusPayload: probing bot /health", {
+                    healthTarget,
+                })
             }
-            if (healthUrl) {
-                const started = Date.now()
-                if (isBotApiVerbose()) {
-                    logBotApiVerbose("getServiceStatusPayload: probing bot /health", {
-                        healthTarget,
+            let abortTimer: ReturnType<typeof setTimeout> | undefined
+            try {
+                const controller = new AbortController()
+                abortTimer = setTimeout(() => controller.abort(), 4000)
+                const res = await fetch(healthUrl, {
+                    signal: controller.signal,
+                })
+                if (res.ok) {
+                    botApi.ok = true
+                    logBotApiVerbose("getServiceStatusPayload: bot /health ok", {
+                        ms: Date.now() - started,
+                        status: res.status,
+                    })
+                } else {
+                    botApi.message = mapBotHealthProbeFailure({
+                        kind: "http",
+                        status: res.status,
+                    })
+                    logBotApiVerbose("getServiceStatusPayload: bot /health non-ok", {
+                        ms: Date.now() - started,
+                        status: res.status,
                     })
                 }
-                let abortTimer: ReturnType<typeof setTimeout> | undefined
-                try {
-                    const controller = new AbortController()
-                    abortTimer = setTimeout(() => controller.abort(), 4000)
-                    const res = await fetch(healthUrl, {
-                        signal: controller.signal,
-                    })
-                    if (res.ok) {
-                        botApi.ok = true
-                        logBotApiVerbose("getServiceStatusPayload: bot /health ok", {
-                            ms: Date.now() - started,
-                            status: res.status,
-                        })
-                    } else {
-                        botApi.message = mapBotHealthProbeFailure({
-                            kind: "http",
-                            status: res.status,
-                        })
-                        logBotApiVerbose("getServiceStatusPayload: bot /health non-ok", {
-                            ms: Date.now() - started,
-                            status: res.status,
-                        })
-                    }
-                } catch (e) {
-                    if (e instanceof Error && e.name === "AbortError") {
-                        botApi.message = mapBotHealthProbeFailure({ kind: "timeout" })
-                    } else {
-                        botApi.message = mapBotHealthProbeFailure({ kind: "request_failed" })
-                        console.error(
-                            "[service-status] Bot /health request failed",
-                            sanitizeError(e)
-                        )
-                    }
-                    logBotApiVerbose("getServiceStatusPayload: bot /health failed", {
-                        ms: Date.now() - started,
-                        message: botApi.message,
-                    })
-                } finally {
-                    if (abortTimer !== undefined) {
-                        clearTimeout(abortTimer)
-                    }
+            } catch (e) {
+                if (e instanceof Error && e.name === "AbortError") {
+                    botApi.message = mapBotHealthProbeFailure({ kind: "timeout" })
+                } else {
+                    botApi.message = mapBotHealthProbeFailure({ kind: "request_failed" })
+                    console.error("[service-status] Bot /health request failed", sanitizeError(e))
+                }
+                logBotApiVerbose("getServiceStatusPayload: bot /health failed", {
+                    ms: Date.now() - started,
+                    message: botApi.message,
+                })
+            } finally {
+                if (abortTimer !== undefined) {
+                    clearTimeout(abortTimer)
                 }
             }
         }

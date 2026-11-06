@@ -31,9 +31,9 @@ if [ -n "${LAVALINK_YOUTUBE_CIPHER_PASSWORD:-}" ]; then
     YOUTUBE_CIPHER_YAML=$(
         cat << CIPHER
     remoteCipher:
-      url: "${LAVALINK_YOUTUBE_CIPHER_URL:-http://yt-cipher:8001}"
+      url: "${LAVALINK_YOUTUBE_CIPHER_URL:-http://fluxer-cipher:8001}"
       password: "${LAVALINK_YOUTUBE_CIPHER_PASSWORD}"
-      userAgent: "dimbybot"
+      userAgent: "dimbybot-fluxer"
 CIPHER
     )
 else
@@ -80,8 +80,8 @@ ${YOUTUBE_OAUTH_YAML}
       countryCode: "${LAVALINK_SPOTIFY_COUNTRY_CODE}"
       playlistLoadLimit: ${LAVALINK_SPOTIFY_PLAYLIST_LOAD_LIMIT}
       albumLoadLimit: ${LAVALINK_SPOTIFY_ALBUM_LOAD_LIMIT}
-      preferAnonymousToken: false # Whether to use the anonymous token for resolving tracks, artists and albums. Spotify generated playlists are always resolved with the anonymous tokens since they do not work otherwise. This requires the customTokenEndpoint to be set.
-      customTokenEndpoint: "http://spotify-tokener:8080/api/token" # Optional custom endpoint for getting the anonymous token. If not set, spotify's default endpoint will be used which might not work. The response must match spotify's anonymous token response format.
+      preferAnonymousToken: true # Whether to use the anonymous token for resolving tracks, artists and albums. Spotify generated playlists are always resolved with the anonymous tokens since they do not work otherwise. This requires the customTokenEndpoint to be set.
+      customTokenEndpoint: "http://fluxer-spotify-tokener:8080/api/token" # Optional custom endpoint for getting the anonymous token. If not set, spotify's default endpoint will be used which might not work. The response must match spotify's anonymous token response format.
       resolveArtistsInSearch: true
       localFiles: false
 server:
@@ -104,9 +104,8 @@ lavalink:
       twitch: true
       vimeo: true
       nico: true
-      # Enabled so Lavalink can play companion-proxied YouTube audio. The bot only enqueues
-      # URLs on the Docker network (http://invidious-companion:8282/...), never user-supplied HTTP.
-      http: true
+      # Metadata only: native streaming bypasses this server and enforces its own DNS pinning.
+      http: false
       local: false
     filters: # All filters are enabled by default
       volume: true

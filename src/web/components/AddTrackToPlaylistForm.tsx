@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import { addTrackFromQueryToPlaylistAction } from "@/lib/actions/playlist.actions"
+import { addTrackFromQueryToPlaylistAction } from "@/server/playlists.actions"
 import { Button } from "@/components/ui/button"
 
 interface AddTrackToPlaylistFormProps {
@@ -42,11 +42,7 @@ export function AddTrackToPlaylistForm({ playlistId, guildId }: AddTrackToPlayli
                         return
                     }
                     setQuery("")
-                    setSuccess(
-                        result.data.added === 1
-                            ? "Added 1 track."
-                            : `Added ${result.data.added} tracks from playlist.`
-                    )
+                    setSuccess("Playlist updated.")
                     router.refresh()
                 })()
             }}
@@ -74,7 +70,10 @@ export function AddTrackToPlaylistForm({ playlistId, guildId }: AddTrackToPlayli
                 </p>
             ) : null}
             {success ? (
-                <p className="text-sm text-green-600 dark:text-green-400 sm:basis-full" role="status">
+                <p
+                    className="text-sm text-green-600 dark:text-green-400 sm:basis-full"
+                    role="status"
+                >
                     {success}
                 </p>
             ) : null}

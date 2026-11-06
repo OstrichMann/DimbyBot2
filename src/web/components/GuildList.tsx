@@ -87,6 +87,7 @@ export function GuildList({ result }: GuildListProps) {
                 >
                     {isValidGuildIconUrl(guild.iconUrl) ? (
                         <Image
+                            unoptimized
                             src={guild.iconUrl}
                             alt={`${guild.name} icon`}
                             width={40}

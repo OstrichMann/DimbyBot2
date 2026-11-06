@@ -22,10 +22,10 @@ export function UserHeader({ showAdminLink = false }: { showAdminLink?: boolean 
     const signOutInFlight = useRef(false)
 
     return (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-4">
                 <Link href="/dashboard" prefetch={false} className="font-semibold">
-                    DimbyBot Dashboard
+                    DimbyBot Fluxer
                 </Link>
                 <Link
                     href="/playlists"
@@ -45,13 +45,14 @@ export function UserHeader({ showAdminLink = false }: { showAdminLink?: boolean 
                 ) : null}
             </div>
 
-            <div className="flex items-center gap-3">
-                <div className="text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-3">
+                <div className="max-w-32 truncate text-sm text-muted-foreground">
                     {session?.user?.name ?? "Unknown user"}
                 </div>
                 <ModeToggle />
                 {session?.user?.image ? (
                     <Image
+                        unoptimized
                         src={session.user.image}
                         alt="avatar"
                         width={32}

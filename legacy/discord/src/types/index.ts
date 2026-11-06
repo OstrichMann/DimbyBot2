@@ -1,0 +1,367 @@
+import type { AudioPlayer, VoiceConnection } from "@discordjs/voice"
+import type {
+    AutocompleteInteraction,
+    ChatInputCommandInteraction,
+    RESTPostAPIChatInputApplicationCommandsJSONBody,
+} from "discord.js"
+
+/** Bot client type alias for command / event handlers (avoids circular imports in docs). */
+export type BotClient = import("../lib/BotClient.js").default
+
+/**
+ * Slash command `data` shape: any discord.js slash builder that serializes for REST.
+ * (Fluent APIs return narrowed builder types, not the root SlashCommandBuilder class.)
+ */
+export interface SlashCommandData {
+    readonly name: string
+    toJSON(): RESTPostAPIChatInputApplicationCommandsJSONBody
+}
+
+/** Slash command `execute` — may return Discord.js reply handles; callers should not rely on them. */
+export type SlashCommandExecute = (
+    interaction: ChatInputCommandInteraction,
+    client: BotClient
+) => Promise<unknown>
+
+export interface Command {
+    data: SlashCommandData
+    execute: SlashCommandExecute
+    autocomplete?: (interaction: AutocompleteInteraction, client: BotClient) => Promise<void>
+    category?: string
+    aliases?: string[]
+}
+
+export type EventSetup = (client: BotClient) => void | Promise<void>
+
+/** Severity labels used for Discord log routing (matches the bot logger). */
+export type DiscordLogLevelName = "debug" | "info" | "warn" | "error"
+
+/**
+ * Per-guild Discord log forwarding: one channel for all levels (`allChannelId`) and/or
+ * overrides per level (`byLevel`). `minLevel` drops lower severities before any channel is chosen.
+ */
+export interface GuildDiscordLogSettings {
+    allChannelId?: string
+    byLevel?: Partial<Record<DiscordLogLevelName, string>>
+    minLevel?: DiscordLogLevelName
+}
+
+/** Per-guild fields persisted in `storage/guild_settings.json`. */
+export interface GuildSettings {
+    controlChannelId?: string
+    controlMessageId?: string
+    /** Optional per-guild cap for the downloads folder (MB). */
+    downloadsMaxMb?: number
+    /** Optional forwarding of bot log lines to Discord channels in this guild. */
+    discordLog?: GuildDiscordLogSettings
+}
+
+/** Map of Discord guild id → settings for that guild. */
+export type GuildSettingsStore = Record<string, GuildSettings>
+
+export interface LocalFile {
+    name: string
+    path: string
+    title: string
+}
+
+export interface LocalPlayerState {
+    isPlaying: boolean
+    trackTitle?: string
+    requesterId?: string
+    startedAt?: number
+}
+
+export interface ActiveLocalPlayer {
+    audioPlayer: AudioPlayer
+    connection: VoiceConnection
+    /** Registered `VoiceConnectionStatus.Disconnected` listener (removed on destroy / replace). */
+    onDisconnected?: () => void
+    currentTrack: LocalFile
+    requesterId?: string
+    startedAt: number
+}
+
+export interface QueryPlayResult {
+    success: boolean
+    feedbackText: string
+    error?: Error
+}
+
+/** Entry in `downloads/.metadata.json` for a single `.wav` file. */
+export interface DownloadFileMetadata {
+    guildId?: string
+    downloadDate?: number | string
+    originalUrl?: string
+    filePath?: string
+}
+
+export type DownloadsMetadataStore = Record<string, DownloadFileMetadata>
+
+/** Canonical database row shape for guild settings persistence. */
+export interface GuildSettingsRecord {
+    guildId: string
+    settings: GuildSettings
+}
+
+/** Canonical database row shape for downloaded-file metadata persistence. */
+export interface DownloadMetadataRecord {
+    fileName: string
+    metadata: DownloadFileMetadata
+}
+
+/** Row-level skips from {@link replaceDownloadMetadataStoreInDatabase} (e.g. unresolvable guild id). */
+export type DownloadMetadataStoreSkippedEntry = {
+    key: string
+    reason: "unresolvable-guild-id"
+    fileName: string
+}
+
+/** Result summary for one JSON-to-database migration source. */
+export interface JsonMigrationResult {
+    source: "guildSettings" | "downloadMetadata"
+    attempted: boolean
+    skipped: boolean
+    migratedCount: number
+    failedCount: number
+    reason?: string
+    /** When {@link JsonMigrationOptions.allowPartialMigration} is true and some rows failed validation. */
+    partial?: boolean
+    /** Keys or descriptions of entries that failed validation (partial mode only). */
+    failedEntries?: string[]
+    /** Rows skipped during DB write for download metadata migration (e.g. unresolvable guild id). */
+    downloadMetadataWriteSkipped?: DownloadMetadataStoreSkippedEntry[]
+}
+
+export type ReplaceGuildSettingsStoreFn = (
+    store: GuildSettingsStore
+) => Promise<{ rowsUpserted: number; rowsDeleted: number; rowsAffected: number }>
+
+export type ReplaceDownloadMetadataStoreResult = {
+    rowsWritten: number
+    rowsDeleted: number
+    skippedEntries: DownloadMetadataStoreSkippedEntry[]
+}
+
+export type ReplaceDownloadMetadataStoreFn = (
+    store: DownloadsMetadataStore,
+    options?: { deleteStoreKeys?: string[] }
+) => Promise<ReplaceDownloadMetadataStoreResult>
+
+/** Options for JSON → DB migration helpers. */
+export interface JsonMigrationOptions {
+    allowPartialMigration?: boolean
+}
+
+export type DiscordLogForwarder = (level: DiscordLogLevelName, message: string) => void
+
+export interface LoggerInterface {
+    info(text: string, ...args: unknown[]): void
+    warn(text: string, ...args: unknown[]): void
+    error(text: string, ...args: unknown[]): void
+    debug(text: string, ...args: unknown[]): void
+    setDebugEnabled(enabled: boolean): void
+    getDebugEnabled(): boolean
+    getLogFilePath(): string | null
+    /** When set, each log line is forwarded (e.g. to Discord) after console/file logging. */
+    setDiscordForwarder?(callback: DiscordLogForwarder | null): void
+}
+
+export interface ApiErrorPayload {
+    error: string
+    details?: string
+}
+
+export interface ApiSuccessPayload<T> {
+    ok: true
+    data: T
+}
+
+export interface ApiFailurePayload {
+    ok: false
+    error: ApiErrorPayload
+}
+
+export type ApiResponse<T> = ApiSuccessPayload<T> | ApiFailurePayload
+
+/** Single track row in a user playlist. */
+export interface PlaylistTrackData {
+    id: number
+    title: string
+    uri: string
+    author: string
+    duration: number
+    thumbnailUrl: string | null
+    addedAt: Date
+    position: number
+}
+
+/** Full user playlist with ordered tracks. */
+export interface PlaylistData {
+    id: number
+    name: string
+    userId: string
+    createdAt: Date
+    updatedAt: Date
+    tracks: PlaylistTrackData[]
+}
+
+/** Playlist list entry for list views. */
+export interface PlaylistSummary {
+    id: number
+    name: string
+    trackCount: number
+    totalDuration: number
+    createdAt: Date
+}
+
+/** Input for adding a track (no id/position yet). */
+export interface PlaylistTrackInput {
+    title: string
+    uri: string
+    author: string
+    duration: number
+    thumbnailUrl?: string | null
+    addedAt: Date
+}
+
+/** A persisted countdown that renders an auto-updating embed in a guild channel. */
+export interface CountdownEntry {
+    id: number
+    guildId: string
+    channelId: string
+    messageId: string
+    eventName: string
+    description: string | null
+    imageUrl: string | null
+    /** Embed accent color as a 0xRRGGBB integer, or null for the default. */
+    color: number | null
+    /** Custom embed footer text, or null to show the countdown id reference. */
+    footer: string | null
+    /** Message posted to the channel when the countdown finishes, or null for none. */
+    finishMessage: string | null
+    /** Role id to mention in the finish message, or null for no mention. */
+    mentionRoleId: string | null
+    targetTime: Date
+    createdBy: string
+    createdAt: Date
+}
+
+/** Input for creating a countdown (id/createdAt assigned by the database). */
+export interface CountdownInput {
+    guildId: string
+    channelId: string
+    messageId: string
+    eventName: string
+    description: string | null
+    imageUrl: string | null
+    color: number | null
+    footer: string | null
+    finishMessage: string | null
+    mentionRoleId: string | null
+    targetTime: Date
+    createdBy: string
+}
+
+/** Map of countdown id → countdown entry. */
+export type CountdownStore = Record<number, CountdownEntry>
+
+/** Upload event type an Upload Alert can match. */
+export type UploadEventType = "video" | "short" | "premiere" | "live" | "community"
+
+/** Guild subscription to one YouTube channel (Upload Watch). */
+export interface YoutubeWatchEntry {
+    id: number
+    guildId: string
+    youtubeChannelId: string
+    youtubeChannelName: string
+    createdAt: Date
+}
+
+/** Discord posting rule hanging off an Upload Watch (Upload Alert). */
+export interface YoutubeAlertEntry {
+    id: number
+    watchId: number
+    discordChannelId: string
+    mentionRoleIds: string[]
+    messageTemplate: string | null
+    eventTypes: UploadEventType[]
+    createdBy: string
+    createdAt: Date
+}
+
+/** Input for creating an Upload Alert (watch created if needed). */
+export interface YoutubeAlertInput {
+    guildId: string
+    youtubeChannelId: string
+    youtubeChannelName: string
+    discordChannelId: string
+    mentionRoleIds: string[]
+    messageTemplate: string | null
+    eventTypes: UploadEventType[]
+    createdBy: string
+}
+
+/** Patch for an existing Upload Alert. */
+export interface YoutubeAlertPatch {
+    discordChannelId?: string
+    mentionRoleIds?: string[]
+    messageTemplate?: string | null
+    eventTypes?: UploadEventType[]
+}
+
+/** PubSubHubbub lease for a YouTube channel shared across guilds. */
+export interface YoutubeChannelLeaseEntry {
+    youtubeChannelId: string
+    leaseExpiresAt: Date
+    updatedAt: Date
+}
+
+/** Serialized queue track for player session persistence across bot restarts. */
+export interface PersistedQueueTrack {
+    title: string
+    author: string
+    uri: string
+    duration: number
+    encoded: string | null
+    requesterId: string | null
+    thumbnailUrl: string | null
+    isStream: boolean
+    isrc?: string | null
+}
+
+/** Versioned Lavalink player snapshot stored in `PlayerSession.snapshot`. */
+export interface PlayerSessionSnapshotV1 {
+    version: 1
+    volume: number
+    repeatMode: "off" | "track" | "queue"
+    paused: boolean
+    playing: boolean
+    autoplay: boolean
+    rrqEnabled: boolean
+    current: PersistedQueueTrack | null
+    queue: PersistedQueueTrack[]
+}
+
+/** Row shape for a persisted player session. */
+export interface PlayerSessionData {
+    guildId: string
+    voiceChannelId: string
+    textChannelId: string | null
+    snapshot: PlayerSessionSnapshotV1
+    updatedAt: Date
+}
+
+/** Tracks a user who left voice while RRQ is active and has queued tracks. */
+export interface DisconnectedRRQUser {
+    userId: string
+    /** Epoch ms when the user left the voice channel. */
+    leftAt: number
+    timeoutHandle: NodeJS.Timeout
+}
+
+/**
+ * Per-player map of disconnected users pending queue cleanup.
+ * Stored on the player via `player.set("rrqDisconnectedUsers", map)`.
+ */
+export type RRQDisconnectedUsersMap = Map<string, DisconnectedRRQUser>

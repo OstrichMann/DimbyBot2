@@ -1,5 +1,5 @@
 # Docker Compose commands with dev overrides
-DC := docker compose -f docker-compose.yml -f docker-compose.dev.yml
+DC := docker compose --env-file .env.fluxer -f docker-compose.yml -f docker-compose.dev.yml
 
 # Default target
 .PHONY: help
@@ -12,8 +12,8 @@ help:
 	@echo "  make rebuild   - Stop (volumes kept), build, and start all services"
 	@echo "                   Use 'service=<name>' to rebuild specific service"
 	@echo "  make logs      - Follow logs for all services"
-	@echo "  make restart   - Restart a specific service (e.g., 'make restart service=bot')"
-	@echo "  make exec      - Execute a command in a running service (e.g., 'make exec service=bot cmd=sh')"
+	@echo "  make restart   - Restart a specific service (e.g., 'make restart service=fluxer-bot')"
+	@echo "  make exec      - Execute a command in a running service (e.g., 'make exec service=fluxer-bot cmd=sh')"
 
 .PHONY: up
 up:
@@ -66,7 +66,7 @@ logs:
 .PHONY: restart
 restart:
 	@if [ -z "$(service)" ]; then \
-		echo "Error: Please specify a service to restart (e.g., 'make restart service=bot')"; \
+		echo "Error: Please specify a service to restart (e.g., 'make restart service=fluxer-bot')"; \
 		exit 1; \
 	fi
 	@echo "Restarting service '$(service)'..."
@@ -75,7 +75,7 @@ restart:
 .PHONY: exec
 exec:
 	@if [ -z "$(service)" ]; then \
-		echo "Error: Please specify a service to execute command in (e.g., 'make exec service=bot cmd=sh')"; \
+		echo "Error: Please specify a service to execute command in (e.g., 'make exec service=fluxer-bot cmd=sh')"; \
 		exit 1; \
 	fi
 	@echo "Executing '$(or $(cmd),sh)' in service '$(service)'..."

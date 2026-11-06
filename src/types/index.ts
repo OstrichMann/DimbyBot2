@@ -1,38 +1,3 @@
-import type { AudioPlayer, VoiceConnection } from "@discordjs/voice"
-import type {
-    AutocompleteInteraction,
-    ChatInputCommandInteraction,
-    RESTPostAPIChatInputApplicationCommandsJSONBody,
-} from "discord.js"
-
-/** Bot client type alias for command / event handlers (avoids circular imports in docs). */
-export type BotClient = import("../lib/BotClient.js").default
-
-/**
- * Slash command `data` shape: any discord.js slash builder that serializes for REST.
- * (Fluent APIs return narrowed builder types, not the root SlashCommandBuilder class.)
- */
-export interface SlashCommandData {
-    readonly name: string
-    toJSON(): RESTPostAPIChatInputApplicationCommandsJSONBody
-}
-
-/** Slash command `execute` — may return Discord.js reply handles; callers should not rely on them. */
-export type SlashCommandExecute = (
-    interaction: ChatInputCommandInteraction,
-    client: BotClient
-) => Promise<unknown>
-
-export interface Command {
-    data: SlashCommandData
-    execute: SlashCommandExecute
-    autocomplete?: (interaction: AutocompleteInteraction, client: BotClient) => Promise<void>
-    category?: string
-    aliases?: string[]
-}
-
-export type EventSetup = (client: BotClient) => void | Promise<void>
-
 /** Severity labels used for Discord log routing (matches the bot logger). */
 export type DiscordLogLevelName = "debug" | "info" | "warn" | "error"
 
@@ -70,16 +35,6 @@ export interface LocalPlayerState {
     trackTitle?: string
     requesterId?: string
     startedAt?: number
-}
-
-export interface ActiveLocalPlayer {
-    audioPlayer: AudioPlayer
-    connection: VoiceConnection
-    /** Registered `VoiceConnectionStatus.Disconnected` listener (removed on destroy / replace). */
-    onDisconnected?: () => void
-    currentTrack: LocalFile
-    requesterId?: string
-    startedAt: number
 }
 
 export interface QueryPlayResult {

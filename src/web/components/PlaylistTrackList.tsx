@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -6,12 +6,13 @@ import type { DragEvent } from "react"
 import Link from "next/link"
 import {
     deletePlaylistAction,
+    renamePlaylistAction,
     movePlaylistTrackAction,
     removeTrackFromPlaylistAction,
-} from "@/lib/actions/playlist.actions"
+} from "@/server/playlists.actions"
 import { formatDurationMs } from "@/lib/format-duration"
 import { AddTrackToPlaylistForm } from "@/components/AddTrackToPlaylistForm"
-import { PlaylistDiscordHelp } from "@/components/PlaylistDiscordHelp"
+import { PlaylistFluxerHelp } from "@/components/PlaylistFluxerHelp"
 import { PlaylistTrackRow } from "@/components/PlaylistTrackRow"
 import { Button } from "@/components/ui/button"
 import type { PlaylistTrackData } from "@/types/web"
@@ -77,7 +78,7 @@ export function PlaylistTrackList({
             const previous = orderedTracks.map((track) => ({ ...track }))
             const fromTrack = orderedTracks[fromIndex]
             if (!fromTrack) return
-            const originalFromPosition = fromTrack.position
+            const originalTrackId = fromTrack.id
 
             const reordered = [...orderedTracks]
             const [moved] = reordered.splice(fromIndex, 1)
@@ -94,7 +95,7 @@ export function PlaylistTrackList({
                 setError(null)
                 const result = await movePlaylistTrackAction(
                     playlistId,
-                    originalFromPosition,
+                    originalTrackId,
                     toIndex + 1
                 )
                 setBusy(false)
@@ -148,6 +149,25 @@ export function PlaylistTrackList({
                             <Link href="/playlists">Back to playlists</Link>
                         </Button>
                         <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => {
+                                const name = window.prompt("Playlist name", playlistName)
+                                if (!name?.trim()) return
+                                setBusy(true)
+                                setError(null)
+                                void renamePlaylistAction(playlistId, name.trim())
+                                    .then((result) => {
+                                        if (result.ok === false) setError(result.error)
+                                        else router.refresh()
+                                    })
+                                    .finally(() => setBusy(false))
+                            }}
+                        >
+                            Rename
+                        </Button>
+                        <Button
                             variant="destructive"
                             size="sm"
                             disabled={busy}
@@ -184,7 +204,7 @@ export function PlaylistTrackList({
                         ) : null}
                     </div>
                 </div>
-                <PlaylistDiscordHelp />
+                <PlaylistFluxerHelp />
             </section>
 
             <section className="rounded border bg-card p-4 text-card-foreground">
@@ -206,7 +226,7 @@ export function PlaylistTrackList({
                 {orderedTracks.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                         No tracks yet. Add songs above or use{" "}
-                        <code className="rounded bg-muted px-1">/playlist add</code> in Discord.
+                        <code className="rounded bg-muted px-1">!playlist add</code> in Fluxer.
                     </p>
                 ) : (
                     <ul className="space-y-2">

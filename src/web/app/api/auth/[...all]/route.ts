@@ -1,5 +1,5 @@
 /**
- * Better Auth must be exposed as real HTTP GET/POST routes: OAuth providers (Discord) redirect the
+ * Better Auth must be exposed as real HTTP GET/POST routes: Fluxer OAuth redirect the
  * browser to callback URLs on this origin. That flow cannot run inside a server action, so we use
  * `toNextJsHandler(auth)` here instead of `"use server"` mutations.
  */

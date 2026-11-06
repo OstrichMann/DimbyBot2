@@ -5,7 +5,7 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 
 export const metadata: Metadata = {
-    title: "DimbyBot Dashboard",
+    title: "DimbyBot Fluxer Dashboard",
     description: "Web dashboard controls for DimbyBot music playback.",
 }
 

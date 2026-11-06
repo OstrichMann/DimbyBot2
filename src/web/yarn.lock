@@ -1149,14 +1149,6 @@ kysely@^0.28.17, "kysely@^0.28.17 || ^0.29.0":
   resolved "https://registry.yarnpkg.com/kysely/-/kysely-0.28.17.tgz#cb8c74696b911a43c595f752b653b90ed56d42b9"
   integrity sha512-nbD8lB9EB3wNdMhOCdx5Li8DxnLbvKByylRLcJ1h+4SkrowVeECAyZlyiKMThF7xFdRz0jSQ2MoJr+wXux2y0Q==
 
-lavalink-client@^2.9.9:
-  version "2.10.2"
-  resolved "https://registry.yarnpkg.com/lavalink-client/-/lavalink-client-2.10.2.tgz#7634ce0b5af83134413e594beeeb4475e9138ed8"
-  integrity sha512-iqu19lr/HS/Bwv41SGYQZPQS8J992vaRyLeyIf6UXdpBsOmtIAQnNuGiW3oekSMxa+wkKdTXyCzt1EJT2vJZgg==
-  dependencies:
-    tslib "^2.8.1"
-    ws "^8.20.0"
-
 lightningcss-android-arm64@1.32.0:
   version "1.32.0"
   resolved "https://registry.yarnpkg.com/lightningcss-android-arm64/-/lightningcss-android-arm64-1.32.0.tgz#f033885116dfefd9c6f54787523e3514b61e1968"
@@ -1805,7 +1797,7 @@ write-file-atomic@^5.0.1:
     imurmurhash "^0.1.4"
     signal-exit "^4.0.1"
 
-ws@^8.20.0, ws@^8.21.0:
+ws@^8.21.0:
   version "8.21.0"
   resolved "https://registry.yarnpkg.com/ws/-/ws-8.21.0.tgz#012e413fc07429945121b0c153158c4343086951"
   integrity sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==

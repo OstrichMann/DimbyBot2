@@ -1,5 +1,6 @@
 # Dependency directories
 node_modules/
+tests/web/node_modules
 
 # TypeScript build output
 dist/
@@ -40,3 +41,6 @@ downloads/
 
 # TypeScript incremental build info (web subproject)
 *.tsbuildinfo
+
+# Scratch reviews and other local notes
+docs/temp/

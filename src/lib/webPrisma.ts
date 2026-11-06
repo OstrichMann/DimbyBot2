@@ -1,26 +1,16 @@
 import { PrismaClient } from "@prisma/client"
 import { PrismaPg } from "@prisma/adapter-pg"
 
-const DEFAULT_DEV_DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/postgres"
-
 const globalForPrisma = globalThis as unknown as {
     __webPrismaClient?: InstanceType<typeof PrismaClient>
 }
 
 function createWebPrismaClient(): InstanceType<typeof PrismaClient> {
     const databaseUrl = process.env.DATABASE_URL?.trim()
-    if (!databaseUrl) {
-        if (process.env.NODE_ENV !== "development") {
-            throw new Error("DATABASE_URL is required outside development environments.")
-        }
-        if (process.env.ALLOW_DEV_DATABASE_FALLBACK !== "true") {
-            throw new Error(
-                "DATABASE_URL is required. In development you may set ALLOW_DEV_DATABASE_FALLBACK=true to use the built-in local default (see .env.example)."
-            )
-        }
-    }
+    if (!databaseUrl)
+        throw new Error("DATABASE_URL is required for the independent Fluxer database.")
     const adapter = new PrismaPg({
-        connectionString: databaseUrl || DEFAULT_DEV_DATABASE_URL,
+        connectionString: databaseUrl,
     })
     return new PrismaClient({ adapter })
 }
@@ -31,4 +21,12 @@ export function getWebPrismaClient() {
         globalForPrisma.__webPrismaClient = createWebPrismaClient()
     }
     return globalForPrisma.__webPrismaClient
+}
+
+/** Closes the auth database pool only when it was actually opened. */
+export async function disconnectWebPrismaClient(): Promise<void> {
+    if (globalForPrisma.__webPrismaClient) {
+        await globalForPrisma.__webPrismaClient.$disconnect()
+        delete globalForPrisma.__webPrismaClient
+    }
 }

@@ -6,6 +6,7 @@
 import { spawnSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { createRequire } from "node:module"
+import path from "node:path"
 
 if (!existsSync(".git")) {
     process.exit(0)
@@ -14,7 +15,7 @@ if (!existsSync(".git")) {
 const require = createRequire(import.meta.url)
 let huskyBin
 try {
-    huskyBin = require.resolve("husky/bin.js")
+    huskyBin = path.join(path.dirname(require.resolve("husky")), "bin.js")
 } catch {
     process.exit(0)
 }
