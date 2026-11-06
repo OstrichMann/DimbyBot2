@@ -12,7 +12,7 @@ The Bot uses Fluxer's native REST/Gateway protocol and LiveKit voice grants. FFm
 - A configurable text control channel, native now-playing embeds, and a music Dashboard with Fluxer OAuth and live updates.
 - Fresh membership/channel/voice checks for mutations, owner-scoped playlists, bounded source fetching, DNS pinning and redirect checks, and versioned restart snapshots.
 
-Countdowns, downloads/local-file playback, upload alerts, guild log forwarding, autoplay, round-robin queues, and admin tools are deferred. Their retired Discord implementations and tests are preserved in [legacy/discord](legacy/discord/README.md). They do not start jobs or register commands in the Fluxer runtime. Existing Discord data is not automatically transferred.
+Countdowns, downloads/local-file playback, upload alerts, guild log forwarding, autoplay, round-robin queues, and admin tools are deferred. Their retired Discord implementations and tests are preserved in [legacy/discord](legacy/discord/README.md). They do not start jobs or register commands in the Fluxer runtime. Existing Discord data is not automatically transferred. The command-by-command comparison is in [docs/discord-to-fluxer.md](docs/discord-to-fluxer.md).
 
 ## Independent configuration
 
