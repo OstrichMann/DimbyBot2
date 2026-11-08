@@ -32,7 +32,7 @@ test("now-playing updates coalesce and edit retained IDs; a missing message is r
         },
         rest: {
             request: async (method, path, options) => {
-                writes.push({ method, path, body: options?.body })
+                if (method !== "PUT") writes.push({ method, path, body: options?.body })
                 if (missing && method === "PATCH") {
                     missing = false
                     throw new FluxerRestError(404)
@@ -91,7 +91,7 @@ test("failed ID persistence retains local ID and ambiguous writes are not retrie
         },
         rest: {
             request: async (method) => {
-                methods.push(method)
+                if (method !== "PUT") methods.push(method)
                 if (ambiguous) throw new Error("network secret")
                 return { id: "5" } as any
             },
@@ -110,5 +110,46 @@ test("failed ID persistence retains local ID and ambiguous writes are not retrie
     callback!()
     await settleMusic()
     assert.deepEqual(methods, ["POST", "PATCH", "PATCH"])
+    poster.stop()
+})
+
+test("retained control messages receive reactions once and match only the configured message", async () => {
+    let listener: (state: MusicSnapshot) => void, callback: () => void
+    let channelId: string | null = "4"
+    const paths: string[] = []
+    const poster = new ControlMessage({
+        music: {
+            subscribe: (fn) => {
+                listener = fn
+                return () => {}
+            },
+        },
+        settings: () => ({ channelId, messageId: "5" }),
+        saveMessageId: async () => {},
+        schedule: (fn) => {
+            callback = fn
+            return () => {}
+        },
+        rest: {
+            request: async (method, path) => {
+                if (method === "PUT") paths.push(path)
+                return undefined as any
+            },
+        },
+    })
+    const state = musicServiceHarness().service.snapshot("1")
+    listener!(state)
+    callback!()
+    await settleMusic()
+    assert.equal(paths.length, 5)
+    assert.equal(paths[0], "/channels/4/messages/5/reactions/%E2%8F%AF%EF%B8%8F/@me")
+    assert.equal(poster.matches("1", "4", "5"), true)
+    assert.equal(poster.matches("1", "4", "6"), false)
+    listener!(state)
+    callback!()
+    await settleMusic()
+    assert.equal(paths.length, 5)
+    channelId = null
+    assert.equal(poster.matches("1", "4", "5"), false)
     poster.stop()
 })

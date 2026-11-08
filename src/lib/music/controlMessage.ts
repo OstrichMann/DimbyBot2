@@ -3,6 +3,8 @@ import { isFluxerId } from "../../shared/fluxer-user-id.js"
 import { FluxerRestError, type FluxerRest } from "../fluxer/rest.js"
 import type { MusicService } from "./musicService.js"
 
+import { CONTROL_REACTIONS, CONTROL_REACTION_LEGEND } from "./controlReactions.js"
+
 interface ControlMessageDependencies {
     music: Pick<MusicService, "subscribe">
     rest: Pick<FluxerRest, "request">
@@ -15,6 +17,7 @@ interface PendingControl {
     latest: MusicSnapshot
     channelId: string | null
     messageId: string | null
+    seeded?: string
     cancel?: () => void
     busy: boolean
     dirty: boolean
@@ -27,6 +30,27 @@ export class ControlMessage {
     private stopped = false
     constructor(private readonly dependencies: ControlMessageDependencies) {
         this.unsubscribe = dependencies.music.subscribe((snapshot) => this.update(snapshot))
+    }
+    /** Local IDs remain authoritative if saving a newly created message failed. */
+    matches(guildId: string, channelId: string, messageId: string): boolean {
+        if (this.stopped) return false
+        const settings = this.dependencies.settings(guildId)
+        const state = this.states.get(guildId)
+        return (
+            settings.channelId === channelId &&
+            (state?.channelId === channelId ? state.messageId : settings.messageId) === messageId
+        )
+    }
+    private async seed(state: PendingControl, channelId: string): Promise<void> {
+        if (this.stopped || !state.messageId || state.seeded === state.messageId) return
+        for (const emoji of CONTROL_REACTIONS) {
+            if (this.stopped) return
+            await this.dependencies.rest.request(
+                "PUT",
+                `/channels/${channelId}/messages/${state.messageId}/reactions/${encodeURIComponent(emoji)}/@me`
+            )
+        }
+        state.seeded = state.messageId
     }
     private update(snapshot: MusicSnapshot): void {
         if (this.stopped) return
@@ -61,6 +85,7 @@ export class ControlMessage {
         const snapshot = state.latest,
             settings = this.dependencies.settings(snapshot.guildId)
         if (settings.channelId !== state.channelId) {
+            state.seeded = undefined
             state.channelId = settings.channelId
             state.messageId = settings.messageId
         }
@@ -71,6 +96,7 @@ export class ControlMessage {
                 allowed_mentions: { parse: [] },
                 embeds: [
                     {
+                        footer: { text: CONTROL_REACTION_LEGEND },
                         title: (snapshot.current?.title ?? "Music queue").slice(0, 256),
                         description:
                             `${snapshot.status} · Volume ${snapshot.volume}% · Loop ${snapshot.repeatMode}\n${snapshot.queue.length} upcoming tracks${snapshot.lastError ? `\n${snapshot.lastError}` : ""}`.slice(
@@ -92,10 +118,14 @@ export class ControlMessage {
                         `/channels/${channelId}/messages/${state.messageId}`,
                         { body }
                     )
-                    return
                 } catch (error) {
                     if (!(error instanceof FluxerRestError) || error.status !== 404) throw error
                     state.messageId = null
+                    state.seeded = undefined
+                }
+                if (state.messageId) {
+                    await this.seed(state, channelId)
+                    return
                 }
             }
             const message = await this.dependencies.rest.request<{ id: string }>(
@@ -105,7 +135,11 @@ export class ControlMessage {
             )
             if (!isFluxerId(message?.id)) throw new Error("Invalid control message")
             state.messageId = message.id
-            await this.dependencies.saveMessageId(snapshot.guildId, channelId, message.id)
+            try {
+                await this.dependencies.saveMessageId(snapshot.guildId, channelId, message.id)
+            } finally {
+                await this.seed(state, channelId)
+            }
         } catch {
             this.dependencies.onError?.("Fluxer control message update failed")
         } finally {

@@ -14,6 +14,7 @@ import { FluxerDashboard } from "./fluxer/dashboard.js"
 import { MusicService } from "./music/musicService.js"
 import { PlaylistService } from "./music/playlistService.js"
 import { SessionPersistence } from "./music/sessionPersistence.js"
+import { dispatchControlReaction } from "./music/controlReactions.js"
 import { ControlMessage } from "./music/controlMessage.js"
 import { SourceResolver } from "./music/sourceResolver.js"
 import { LavalinkSearch } from "./music/lavalinkSearch.js"
@@ -293,6 +294,22 @@ export default class BotClient {
             }
             if (!this.initialized) this.waitingMessages.push(message)
             else this.command(message)
+            return
+        }
+        if (event.t.startsWith("MESSAGE_REACTION_")) {
+            if (event.t === "MESSAGE_REACTION_ADD" && this.initialized && this.tasks.size < 1000)
+                this.background(
+                    dispatchControlReaction(event.d, {
+                        botId: (this.options.env ?? process.env).FLUXER_CLIENT_ID ?? "",
+                        matches: (guildId, channelId, messageId) =>
+                            this.controlMessage.matches(guildId, channelId, messageId),
+                        music: this.music,
+                        rest: this.rest,
+                        onError: (message) => {
+                            if (!this.closing) this.logger.warn(message)
+                        },
+                    })
+                )
             return
         }
         const affected =
