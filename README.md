@@ -20,6 +20,8 @@ Use Node 24+ and Yarn. Copy `.env.example` to **`.env.fluxer`** and configure it
 
 Create a Fluxer application with a Bot, install it in a test server, and supply `FLUXER_BOT_TOKEN`, `FLUXER_CLIENT_ID`, and server-only `FLUXER_CLIENT_SECRET`. `FLUXER_INSTANCE_ORIGIN` defaults to `https://fluxer.com`; set it when the Bot should use another instance. That origin is discovered through `/.well-known/fluxer`; API, Gateway, assets and authorization URLs follow that instance. Dashboard sign-in requests the `identify`, `email`, and `guilds` scopes.
 
+In the configured control channel, the Bot deletes each user query or command after processing and removes its reply after five seconds. The persistent music message stays in place. Grant the Bot **Manage Messages** in that channel so it can delete user messages; cleanup failures do not repeat commands. Messages in other channels are retained.
+
 For local Dashboard sign-in, register exactly:
 
 ```text

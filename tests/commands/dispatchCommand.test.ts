@@ -1,5 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import { setImmediate } from "node:timers/promises"
+import { FluxerRestError } from "../../src/lib/fluxer/rest.js"
 import { dispatchCommand } from "../../src/commands/dispatchCommand.js"
 import type { CommandDependencies } from "../../src/commands/context.js"
 import type { FluxerMessage } from "../../src/lib/fluxer/entities.js"
@@ -10,6 +12,7 @@ import { musicServiceHarness, musicTrack } from "../test-support/musicServiceFak
 function harness() {
     const actions: unknown[] = [],
         replies: { path: string; body: any }[] = [],
+        deletions: string[] = [],
         playlists: any[] = []
     let configured: string | null = "4",
         forbidden = false,
@@ -40,10 +43,14 @@ function harness() {
             },
         },
         rest: {
-            request: async (_method, path, options) => {
+            request: async (method, path, options) => {
+                if (method === "DELETE") {
+                    deletions.push(path)
+                    return undefined as any
+                }
                 replies.push({ path, body: options?.body })
                 if (failedReply) throw new Error("ambiguous write")
-                return undefined as any
+                return { id: "10" } as any
             },
         },
         controlChannel: () => configured,
@@ -66,6 +73,7 @@ function harness() {
         deps,
         actions,
         replies,
+        deletions,
         playlists,
         snapshot,
         send: (content: string, extra: Partial<FluxerMessage> = {}) =>
@@ -300,4 +308,71 @@ test("play queries may start with an apostrophe; other commands explain unclosed
     await h.send('!playlist view "Road trip')
     assert.equal(h.replies[1].body.content, "Close the quoted argument")
     assert.equal(h.playlists.length, 0)
+})
+
+test("control queries and commands are removed after processing; feedback expires after five seconds", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] })
+    const h = harness()
+    for (const query of ["a song", "!pause", "!unknown", "!volume 101"]) {
+        h.deletions.length = 0
+        await h.send(query)
+        assert.deepEqual(h.deletions, ["/channels/4/messages/3"])
+        t.mock.timers.tick(4999)
+        await setImmediate()
+        assert.equal(h.deletions.length, 1)
+        t.mock.timers.tick(1)
+        await setImmediate()
+        assert.deepEqual(h.deletions, ["/channels/4/messages/3", "/channels/4/messages/10"])
+    }
+})
+
+test("cleanup never deletes messages outside the control channel or ignored authors", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] })
+    const h = harness()
+    await h.send("!play song", { channelId: "5" })
+    await h.send("!play song", { bot: true })
+    await h.send("!play song", { webhook: true })
+    await h.send("!play song", { guildId: null })
+    t.mock.timers.tick(5000)
+    await setImmediate()
+    assert.deepEqual(h.deletions, [])
+})
+
+test("control cleanup survives command errors and ambiguous reply failures without resending", async () => {
+    const h = harness()
+    h.unexpected()
+    h.failReply()
+    await h.send("!play song")
+    assert.deepEqual(h.deletions, ["/channels/4/messages/3"])
+    assert.equal(h.replies.length, 1)
+})
+
+test("query deletion failures do not prevent feedback cleanup; missing messages are harmless", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] })
+    const h = harness()
+    const errors: string[] = []
+    h.deps.onError = (message) => errors.push(message)
+    const request = h.deps.rest.request
+    h.deps.rest.request = async (method, path, options) => {
+        if (method === "DELETE") {
+            h.deletions.push(path)
+            throw new FluxerRestError(path.endsWith("/3") ? 403 : 404)
+        }
+        return request(method, path, options)
+    }
+    await h.send("!help")
+    assert.deepEqual(errors, ["Fluxer control message cleanup failed"])
+    t.mock.timers.tick(5000)
+    await setImmediate()
+    assert.deepEqual(h.deletions, ["/channels/4/messages/3", "/channels/4/messages/10"])
+    assert.equal(errors.length, 1)
+})
+
+test("cleanup uses the original control channel when configuration changes", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] })
+    const h = harness()
+    await h.send("!control-channel 6")
+    t.mock.timers.tick(5000)
+    await setImmediate()
+    assert.deepEqual(h.deletions, ["/channels/4/messages/3", "/channels/4/messages/10"])
 })
