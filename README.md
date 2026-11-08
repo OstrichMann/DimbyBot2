@@ -112,3 +112,17 @@ The root compiler excludes `src/web/`; building the Bot does not emit the Dashbo
 See [the application layout](docs/application-layout.md), [native music smoke tests](docs/fluxer-music-smoke.md), [the architecture decision](docs/adr/0010-fluxer-native-music.md), and [the glossary](GLOSSARY.md). A successful unit suite does not establish audible playback. Run `yarn smoke:fluxer-voice` for the tone/pause/resume/leave probe; a listener must confirm the sound. Sign-in errors should be diagnosed without printing cookies, grants, authorization codes or OAuth tokens. A Dashboard “Bot API unreachable” notice means its configured Bot HTTP listener is unavailable, even if OAuth succeeded.
 
 Search and catalog availability also depend on upstream YouTube/Spotify behavior and metadata/companion services. A failed source is skipped once; unsupported or unreadable persisted session versions are left intact. Encrypted voice configurations are implemented and unit-covered; verify an encrypted channel separately if your instance requires it.
+
+### Queue message reaction controls
+
+The configured control channel's queue message has reactions for ⏯️ pause/resume,
+⏭️ skip, ⏹️ stop (clears the queue and stays in voice), 🔀 shuffle upcoming tracks,
+and 🔁 loop (off → track → queue → off). Join the Bot's voice channel to use them;
+the same membership and voice permissions as prefix commands apply.
+
+Give the Bot View Channel, Send Messages, Embed Links, Read Message History,
+Add Reactions, and Manage Messages in the control channel. Manage Messages lets
+it remove your reaction after handling the click so you can click again. If
+cleanup is unavailable, remove your own reaction before clicking it again.
+Existing queue messages gain reactions on their next music update, including
+restored queues after a restart. Prefix commands and Dashboard controls remain available.

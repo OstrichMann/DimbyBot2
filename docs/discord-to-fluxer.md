@@ -47,7 +47,7 @@ Music equivalents are `play`, `skip`, `stop`, `leave`, `queue`, `clearqueue`, `s
 | Round-robin queue                  | `/roundrobin`                                      | Not implemented                                 | Not migrated  |
 | Shuffle when enqueueing a playlist | `/playlist play` shuffle option                    | Enqueue keeps saved order                       | Not migrated  |
 | Local audio files                  | A query could match local wav files                | `file:` and local queries are rejected          | Not migrated  |
-| Control-message buttons            | Pause, stop, skip, shuffle, loop, autoplay         | Ordinary messages; Fluxer has no bot buttons    | Not migrated  |
+| Control-message controls           | Pause, stop, skip, shuffle, loop, autoplay         | Queue reactions; autoplay unavailable           | Changed       |
 
 ## Server admin, downloads, and developer tools
 

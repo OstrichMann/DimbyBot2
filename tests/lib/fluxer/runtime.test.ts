@@ -139,6 +139,37 @@ test("native startup composes only music, ignores deferred command names, and fl
     assert.match(messages[0], /playlist/)
     assert.equal(messages.length, 1, "deferred commands outside the control channel get no reply")
     assert.doesNotMatch(messages[0], /autoplay|round.robin|countdown|download|alert/i)
+    settings.set("1", { channelId: "4", messageId: "5" })
+    const originalExecute = client.music.execute.bind(client.music)
+    const reactionActions: string[] = []
+    client.music.execute = async (_actor, action) => {
+        reactionActions.push(action.type)
+        return client.music.snapshot("1")
+    }
+    await dispatch!({
+        t: "MESSAGE_REACTION_ADD",
+        d: {
+            guild_id: "1",
+            channel_id: "4",
+            message_id: "5",
+            user_id: "9",
+            emoji: { name: "⏭️" },
+        },
+    })
+    await dispatch!({
+        t: "MESSAGE_REACTION_REMOVE",
+        d: {
+            guild_id: "1",
+            channel_id: "4",
+            message_id: "5",
+            user_id: "9",
+            emoji: { name: "⏭️" },
+        },
+    })
+    await settleMusic()
+    assert.deepEqual(reactionActions, ["skip"])
+    client.music.execute = originalExecute
+    settings.clear()
     let checks = 0,
         release: () => void
     const gate = new Promise<void>((resolve) => {
