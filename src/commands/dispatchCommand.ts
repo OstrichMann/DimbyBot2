@@ -1,3 +1,5 @@
+import { isFluxerId } from "../shared/fluxer-user-id.js"
+import { FluxerRestError } from "../lib/fluxer/rest.js"
 import type { FluxerMessage } from "../lib/fluxer/entities.js"
 import { MusicAccessError } from "../lib/fluxer/access.js"
 import { MusicError } from "../lib/music/musicService.js"
@@ -40,10 +42,35 @@ export async function dispatchCommand(
             dependencies.onError?.("Music command failed")
     }
     try {
-        await dependencies.rest.request("POST", `/channels/${message.channelId}/messages`, {
-            body: { content: content.slice(0, 2000), allowed_mentions: { parse: [] } },
-        })
+        const reply = await dependencies.rest.request<{ id: string }>(
+            "POST",
+            `/channels/${message.channelId}/messages`,
+            { body: { content: content.slice(0, 2000), allowed_mentions: { parse: [] } } }
+        )
+        if (inControlChannel && isFluxerId(reply?.id)) {
+            const timer = setTimeout(() => {
+                void deleteControlMessage(message.channelId, reply.id, dependencies)
+            }, 5000)
+            timer.unref?.()
+        }
     } catch {
         dependencies.onError?.("Fluxer command reply failed")
+    } finally {
+        if (inControlChannel)
+            await deleteControlMessage(message.channelId, message.id, dependencies)
+    }
+}
+
+/** Cleanup is best effort: missing permissions or messages must not replay a command or reply. */
+async function deleteControlMessage(
+    channelId: string,
+    messageId: string,
+    dependencies: CommandDependencies
+): Promise<void> {
+    try {
+        await dependencies.rest.request("DELETE", `/channels/${channelId}/messages/${messageId}`)
+    } catch (error) {
+        if (!(error instanceof FluxerRestError && error.status === 404))
+            dependencies.onError?.("Fluxer control message cleanup failed")
     }
 }
